@@ -133,7 +133,8 @@ def generate(source_dir: Path) -> dict:
     simple_rows = re.findall(r"\{([^{}]+)\}", simple_table[1])
     if len(simple_rows) != 4:
         raise ValueError("Unexpected upstream simple_coeff table")
-    simple_coefficients = [float(value.strip().removesuffix("f")) for value in simple_rows[3].split(",")]
+    simple_literals = [value.strip() for value in simple_rows[3].split(",")]
+    simple_coefficients = [float(value.removesuffix("f")) for value in simple_literals]
     if len(simple_coefficients) != 12:
         raise ValueError("Unexpected Nikon simple_coeff dimension")
     additional_models = ["COOLPIX 880", "E880", "COOLPIX 900", "E900", "COOLPIX 990", "E990"]
@@ -165,12 +166,13 @@ def generate(source_dir: Path) -> dict:
             "source_function": "LibRaw::simple_coeff",
             "source_index": 3,
             "source_file": "src/tables/colordata.cpp",
-            "source_line": table.count("\n", 0, simple_start) + 1,
+            "source_line": sources["src/tables/colordata.cpp"].splitlines().index("      /* index 3 -- Nikon E880, E900, and E990 */") + 1,
             "models": additional_models,
             "matrix_direction": "camera_channels_to_libraw_rgb_cam",
             "matrix_shape": [3, 4],
             "coefficient_scale": 1,
             "source_coefficient_type": "C++ float",
+            "source_coefficient_literals": simple_literals,
             "coefficients": simple_coefficients,
             "runtime_policy": "Audit only; never used as an XYZ-to-camera matrix or by native NEF fallback.",
         }],

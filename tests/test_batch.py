@@ -101,7 +101,8 @@ def test_queue_applies_events_and_requeues_only_failed(tmp_path):
 
 
 @pytest.mark.parametrize("write_json", [False, True])
-def test_serial_worker_forwards_all_options_continues_failure_and_only_emits_events(tmp_path, write_json):
+@pytest.mark.parametrize("method", ["native", "dng"])
+def test_serial_worker_forwards_all_options_continues_failure_and_only_emits_events(tmp_path, write_json, method):
     model = PhotoQueue()
     items = model.add_paths([tmp_path / name for name in ("first.NEF", "broken.NEF", "last.NEF")])
     entered, release = threading.Event(), threading.Event()
@@ -126,7 +127,7 @@ def test_serial_worker_forwards_all_options_continues_failure_and_only_emits_eve
             active -= 1
 
     job = BatchJob(processor)
-    options = BatchOptions("native", tmp_path / "输出", "phone", "cpu", write_json)
+    options = BatchOptions(method, tmp_path / "输出", "phone", "cpu", write_json)
     job.start(model.pending_items, options)
     try:
         assert entered.wait(3) and job.running
@@ -138,7 +139,8 @@ def test_serial_worker_forwards_all_options_continues_failure_and_only_emits_eve
     assert maximum == 1 and len(calls) == 3
     assert all(worker != caller and worker == job.thread.ident for _, worker in calls)
     for kwargs, _ in calls:
-        assert kwargs["method"] == "native" and kwargs["resolution"] == "phone"
+        assert set(kwargs) == {"input_path", "output_dir", "method", "resolution", "device", "write_json", "progress"}
+        assert kwargs["method"] == method and kwargs["resolution"] == "phone"
         assert kwargs["device"] == "cpu" and kwargs["write_json"] is write_json
         assert kwargs["output_dir"] == (tmp_path / "输出").resolve()
     assert [kind for kind, _ in events] == [

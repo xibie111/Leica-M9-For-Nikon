@@ -27,3 +27,7 @@ and retention of black/maximum values for audit without applying them.
 The raw integer coefficients and XYZ-to-camera direction are unchanged.
 Four-channel entries remain in the inventory; this does not add native
 decoding or processing support for four-channel or non-Bayer input files.
+The separate Nikon E880/E900/E990 simple_coeff matrix is retained under
+additional_upstream_matrices with its original C++ float literals, 3-by-4
+camera-to-LibRaw-rgb_cam direction and scale 1. It is audit data only and
+is never substituted for the XYZ-to-camera matrices in the 93 main entries.

@@ -2,6 +2,8 @@
 
 核查日期：2026-10-17。测试环境为 rawpy 0.25.1、LibRaw 0.21.4。矩阵方向先用生成的 CFA DNG 核对，随后在用户提供的真实 Nikon Z7 II NEF 上验证了 Adobe 转换及两路 RAW 解码。本文不将 RAW 解码检查等同于后续网络与成片画质验收。
 
+后续已把 Z6 III 的单机回补扩展为固定 LibRaw 0.22.1 全部尼康矩阵目录，详见 [尼康矩阵目录](NIKON_MATRICES.md)。下文保留最初方向核查和 Z6 III 修复时的 0.22.0 来源记录；当前程序使用 0.22.1 目录，仅补全明确机型的全零矩阵，并支持标准单条带 CFA 的 Compression=1 或 34713。原 Z6 III 系数和真实样片输出保持相同。
+
 ## 矩阵方向的一手依据
 
 1. [rawpy 官方绑定源码](https://github.com/letmaik/rawpy/blob/main/rawpy/_rawpy.pyx)：检查的是 rawpy 0.27.1 发行源码包中 `_rawpy.pyx` 第 916–929 行。`rgb_xyz_matrix` 将底层 `cam_xyz` 逐项原样返回，没有转置：

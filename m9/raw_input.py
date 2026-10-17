@@ -3,9 +3,9 @@
 LibRaw's cam_xyz is XYZ -> camera, despite rawpy's ambiguous rgb_xyz_matrix
 name. rawpy/_rawpy.pyx returns cam_xyz unchanged; LibRaw::cam_xyz_coeff in
 src/utils/utils_dcraw.cpp multiplies it by xyz_rgb, normalizes, then inverts.
-The Nikon Z 7 table entry in src/tables/colordata.cpp also covers Z 7_2.
-For standard Z6_3 NEFs, the missing 0.21.4 camera-table entry is backported
-from LibRaw 0.22.0 only when the installed library returns an all-zero matrix.
+Known Nikon models can use the pinned official camera table only when the
+installed library returns an all-zero matrix. Valid library matrices take
+precedence; the table does not add RAW decoding or four-channel support.
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ import rawpy
 
 from . import frontend
 from .frontend import RawInfo
+from .nikon_matrices import lookup_nikon_matrix, nikon_matrix_catalog
 
 
 def _report(progress, stage: str, message: str):
@@ -276,34 +277,40 @@ def _native_xyz2cam(path: Path, info: RawInfo, matrix, progress=None):
     if matrix.shape != (4, 3) or not np.allclose(matrix[3], 0, atol=1e-6):
         raise ValueError("Unsupported LibRaw colour matrix layout")
     info.extra["matrix_source"] = "LibRaw cam_xyz (XYZ -> camera), single matrix"
-    if (not np.any(matrix) and info.model.strip().upper() == "NIKON Z6_3"
-            and info.make.strip().upper() in ("NIKON", "NIKON CORPORATION")):
+    if not np.any(matrix):
+        profile = lookup_nikon_matrix(info.make, info.model)
+        if profile is None:
+            return matrix[:3]
+        if len(profile["coefficients"]) != 9:
+            raise ValueError("Nikon camera profile requires four colour channels; native NEF requires three-colour RGB Bayer")
         tags = frontend.dng_tags(str(path))
         raw_tags = tags.get("_raw_ifd", tags)
         offsets = np.asarray(raw_tags.get("StripOffsets", ()), np.float64).ravel()
-        if (int(frontend._num(raw_tags.get("Compression"))) != 34713
-                or int(frontend._num(raw_tags.get("PhotometricInterpretation"))) != 32803
-                or int(frontend._num(raw_tags.get("SamplesPerPixel", 1))) != 1
+        compression = frontend._num(raw_tags.get("Compression"))
+        if (compression not in (1, 34713)
+                or frontend._num(raw_tags.get("PhotometricInterpretation")) != 32803
+                or frontend._num(raw_tags.get("SamplesPerPixel", 1)) != 1
                 or offsets.shape != (1,) or not np.isfinite(offsets).all()
                 or offsets[0] < 0 or offsets[0] != int(offsets[0])):
-            raise ValueError("Z6 III matrix compatibility requires a standard compressed single-strip CFA NEF")
+            raise ValueError("Nikon matrix compatibility requires a standard uncompressed or Nikon-compressed single-strip CFA NEF")
         with path.open("rb") as stream:
             stream.seek(int(offsets[0]))
             signature = stream.read(4)
-        if len(signature) != 4 or signature == b"\xff\x10\xff\x50":
-            raise ValueError("Z6 III HE/HE* or incomplete RAW data is not supported by this matrix compatibility path")
-        # Exact Nikon Z6_3 entry, not Z6/Z6_2. Match LibRaw's float / 10000.f.
-        # https://github.com/LibRaw/LibRaw/blob/0.22.0/src/tables/colordata.cpp#L1036-L1037
-        xyz2cam = np.array([[11206, -4286, -941], [-4879, 12847, 2251],
-                            [-745, 1654, 7374]], dtype=np.float32) / np.float32(10000)
-        info.extra["matrix_source"] = "LibRaw 0.22.0 Nikon Z6_3 camera table (XYZ -> camera), missing-profile backport"
+        if len(signature) != 4 or (compression == 34713 and signature == b"\xff\x10\xff\x50"):
+            raise ValueError("Nikon HE/HE* or incomplete RAW data is not supported by this matrix compatibility path")
+        catalog = nikon_matrix_catalog()
+        version = catalog["source"]["version"]
+        model = "NIKON " + profile["model_prefix"]
+        # Match LibRaw's float / 10000.f; do not apply table black/maximum values.
+        xyz2cam = np.array(profile["coefficients"], dtype=np.float32).reshape(3, 3) / np.float32(catalog["coefficient_scale"])
+        info.extra["matrix_source"] = f"LibRaw {version} {model} camera table (XYZ -> camera), missing-profile backport"
         info.extra["matrix_compatibility_profile"] = {
-            "camera_model": "NIKON Z6_3", "upstream_libraw_version": "0.22.0",
-            "source_url": "https://github.com/LibRaw/LibRaw/blob/0.22.0/src/tables/colordata.cpp#L1036-L1037",
+            "camera_model": model, "matched_model": info.model, "upstream_libraw_version": version,
+            "source_url": f"https://github.com/LibRaw/LibRaw/blob/{catalog['source']['tag']}/src/tables/colordata.cpp#L{profile['source_line']}",
             "reason": "installed LibRaw returned an all-zero cam_xyz",
             "xyz_to_camera": xyz2cam.tolist(), "raw_strip_signature": signature.hex(),
         }
-        _report(progress, "metadata", "LibRaw has no Nikon Z6_3 colour matrix; using the verified LibRaw 0.22.0 camera table on the native route")
+        _report(progress, "metadata", f"LibRaw has no {info.model} colour matrix; using the verified LibRaw {version} {model} camera table on the native route")
         return xyz2cam.astype(np.float64)
     return matrix[:3]
 

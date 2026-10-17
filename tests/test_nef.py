@@ -1,4 +1,5 @@
 import hashlib
+import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,7 +9,7 @@ import numpy as np
 from PIL import Image
 import pytest
 
-from m9 import nef
+from m9 import frontend, nef, render
 from m9.frontend import RawInfo
 from m9.ae import AEResult
 from m9.uhdr import icc_p3
@@ -29,13 +30,14 @@ def pipeline(tmp_path, monkeypatch):
     ae = AEResult(200, 100, 3, 26, .6, 15.6, .3, 200, 180, .25, 1.2)
     decode = Mock(return_value=(raw, np.eye(3, dtype=np.float32), info))
     monkeypatch.setattr(nef, "load_nef", decode)
+    monkeypatch.setattr(frontend, "dng_tags", Mock(return_value={}))
     monkeypatch.setattr(nef, "resolve_device", lambda x: "cpu")
-    monkeypatch.setattr(nef, "b2y_from_raw", lambda *args, **kw: SimpleNamespace(
-        rgb=raw, lin=raw, info=info, cct=5500, lux_index=200, ae=ae))
+    monkeypatch.setattr(nef, "b2y_from_raw", Mock(side_effect=lambda *args, **kw: SimpleNamespace(
+        rgb=raw, lin=raw, info=info, cct=5500, lux_index=200, ae=ae)))
     st = Mock(side_effect=lambda image, *args, **kwargs: image)
     st.be = SimpleNamespace(wdir=str(weights))
     monkeypatch.setattr(nef.styletrans, "load", Mock(return_value=st))
-    monkeypatch.setattr(nef, "LeicaFilter", Mock(return_value=lambda image, **kw: image))
+    monkeypatch.setattr(nef, "LeicaFilter", Mock(return_value=Mock(side_effect=lambda image, **kw: image)))
     return source, tmp_path / "输出 成片", decode, st
 
 
@@ -47,9 +49,9 @@ def test_core_writes_p3_complete_record_and_never_overwrites(pipeline, write_jso
     first = nef.process_nef(source, output, progress=progress, write_json=write_json)
     second = nef.process_nef(source, output, method="native", resolution="phone", device="cpu", write_json=write_json)
     third = nef.process_nef(source, output, write_json=write_json)
-    assert Path(first["output"]).name == "DSC 0001_M9_dng_original.jpg"
-    assert Path(second["output"]).name == "DSC 0001_M9_native_phone.jpg"
-    assert Path(third["output"]).name == "DSC 0001_M9_dng_original_2.jpg"
+    assert Path(first["output"]).name == "DSC 0001_M9_tele_dng_original.jpg"
+    assert Path(second["output"]).name == "DSC 0001_M9_tele_native_phone.jpg"
+    assert Path(third["output"]).name == "DSC 0001_M9_tele_dng_original_2.jpg"
     assert source.read_bytes() == before
     for report in (first, second, third):
         image_path = Path(report["output"])
@@ -65,6 +67,8 @@ def test_core_writes_p3_complete_record_and_never_overwrites(pipeline, write_jso
         assert json.loads(json.dumps(report)) == report
         assert report["jpeg_sha256"] == hashlib.sha256(image_path.read_bytes()).hexdigest()
         assert report["models"]["StyleTrans"] == "on"
+        assert report["camera_tuning"] == "tele" and report["zoom"] == 4.3
+        assert report["ev"] == 0.0
         assert set(report["models"]["weights_sha256"]) == {"low", "high", "colorfix"}
         assert report["input_size"] == report["output_size"] == [49, 33]
         assert report["exposure"]["short_adjustment_ev"] == -2
@@ -96,12 +100,91 @@ def test_core_json_defaults_off_and_toggling_keeps_old_report(pipeline):
 def test_default_off_preserves_orphan_json_and_avoids_stale_report_pair(pipeline):
     source, output, _, _ = pipeline
     output.mkdir()
-    existing = output / "DSC 0001_M9_dng_original.json"
+    existing = output / "DSC 0001_M9_tele_dng_original.json"
     existing.write_bytes(b"existing processing evidence")
     report = nef.process_nef(source, output)
     assert Path(report["output"]).name.endswith("_2.jpg")
     assert existing.read_bytes() == b"existing processing evidence"
     assert sorted(p.suffix for p in output.iterdir()) == [".jpg", ".json"]
+
+
+def test_tele_outputs_preserve_existing_main_results_and_same_tele_names(pipeline):
+    source, output, _, _ = pipeline
+    output.mkdir()
+    old_jpeg = output / f"{source.stem}_M9_native_original.jpg"
+    old_json = old_jpeg.with_suffix(".json")
+    old_jpeg.write_bytes(b"previous main JPEG")
+    old_json.write_bytes(b"previous main report")
+    first = nef.process_nef(source, output, method="native", write_json=True)
+    first_pair = {Path(first[key]): Path(first[key]).read_bytes() for key in ("output", "record")}
+    second = nef.process_nef(source, output, method="native", write_json=True)
+    assert Path(first["output"]).name == f"{source.stem}_M9_tele_native_original.jpg"
+    assert Path(second["output"]).name == f"{source.stem}_M9_tele_native_original_2.jpg"
+    assert old_jpeg.read_bytes() == b"previous main JPEG"
+    assert old_json.read_bytes() == b"previous main report"
+    assert all(path.read_bytes() == payload for path, payload in first_pair.items())
+
+
+@pytest.mark.parametrize("method", ["dng", "native"])
+@pytest.mark.parametrize("f35,expected", [
+    (None, 4.3), (0, 4.3), (-1, 4.3), ("invalid", 4.3), (np.nan, 4.3),
+    (np.inf, 4.3), ((75, 0), 4.3), (23, 3.2), (73.6, 3.2), (75, 75 / 23),
+    ((150, 2), 75 / 23), (85, 85 / 23), (98.9, 4.3), (150, 4.3),
+])
+def test_tele_default_reads_original_nef_focal_length_and_reuses_zoom_helper(
+    pipeline, monkeypatch, method, f35, expected
+):
+    source, output, decode, _ = pipeline
+
+    def tags_after_decode(path):
+        assert decode.call_count == 1
+        return {} if f35 is None else {"FocalLengthIn35mmFilm": f35}
+
+    metadata = Mock(side_effect=tags_after_decode)
+    monkeypatch.setattr(frontend, "dng_tags", metadata)
+    report = nef.process_nef(source, output, method=method)
+    metadata.assert_called_once_with(str(source))
+    assert nef._tele_zoom is render._tele_zoom
+    args, kwargs = nef.b2y_from_raw.call_args
+    assert all(actual is supplied for actual, supplied in zip(args, decode.return_value))
+    assert kwargs == {"ev": 0.0, "camera": "tele"}
+    nef.LeicaFilter.assert_called_once_with(device="cpu")
+    assert nef.LeicaFilter.return_value.call_args.kwargs == {
+        "lux_index": 200, "cct": 5500, "zoom": pytest.approx(expected),
+        "scene": "common", "style_trans_on": True,
+    }
+    assert report["camera_tuning"] == "tele" and report["ev"] == 0.0
+    assert type(report["zoom"]) is float and report["zoom"] == pytest.approx(expected)
+    assert Path(report["output"]).name == f"{source.stem}_M9_tele_{method}_original.jpg"
+
+
+def test_nef_runs_real_tele_frontend_without_changing_shared_main_default(pipeline, monkeypatch):
+    source, output, decode, _ = pipeline
+    actual_frontend = Mock(wraps=frontend.b2y_from_raw)
+    monkeypatch.setattr(nef, "b2y_from_raw", actual_frontend)
+    report = nef.process_nef(source, output, method="native")
+    assert actual_frontend.call_args.kwargs == {"ev": 0.0, "camera": "tele"}
+    expected = frontend.b2y_from_raw(*decode.return_value, ev=0.0, camera="tele")
+    assert expected.camera == "tele"
+    assert report["exposure"]["exp_short"] == expected.ae.exp_short
+    assert report["lux_index"] == expected.lux_index
+    assert frontend.b2y_from_raw(*decode.return_value).camera == "main"
+    assert inspect.signature(frontend.b2y).parameters["camera"].default == "main"
+    assert inspect.signature(render.render).parameters["camera"].default == "main"
+
+
+def test_original_render_default_still_routes_main_with_zoom_one(pipeline, monkeypatch):
+    _, _, decode, _ = pipeline
+    legacy_frontend = Mock(return_value=nef.b2y_from_raw(*decode.return_value))
+    monkeypatch.setattr(render, "b2y", legacy_frontend)
+    monkeypatch.setattr(render, "LeicaFilter", nef.LeicaFilter)
+    monkeypatch.setattr(render, "_save", Mock())
+    zoom = Mock(side_effect=AssertionError("main render must not infer tele zoom"))
+    monkeypatch.setattr(render, "_tele_zoom", zoom)
+    render.render("legacy.dng", "legacy.jpg", hdr=False, verbose=False)
+    assert legacy_frontend.call_args.kwargs["camera"] == "main"
+    assert nef.LeicaFilter.return_value.call_args.kwargs["zoom"] == 1.0
+    zoom.assert_not_called()
 
 
 @pytest.mark.parametrize("stage", ["models", "raw", "style", "filter", "jpeg"])
@@ -210,9 +293,24 @@ def test_cli_defaults_and_failures(tmp_path, monkeypatch):
     monkeypatch.setattr(nef, "process_nef", run)
     assert nef.main([str(tmp_path / "input.NEF")]) == 0
     assert run.call_args.args[2:5] == ("dng", "original", "auto")
+    assert run.call_args.kwargs["converter"] is None
     assert run.call_args.kwargs["write_json"] is False
     assert nef.main([str(tmp_path / "input.NEF"), "--write-json"]) == 0
     assert run.call_args.kwargs["write_json"] is True
+    source, output, converter = (tmp_path / name for name in ("input.NEF", "output", "converter.exe"))
+    assert nef.main([str(source), "--output-dir", str(output), "--method", "native",
+                     "--resolution", "phone", "--device", "cpu", "--converter", str(converter),
+                     "--write-json"]) == 0
+    assert run.call_args.args == (source, output, "native", "phone", "cpu")
+    assert run.call_args.kwargs["converter"] == converter
+    assert run.call_args.kwargs["write_json"] is True
+    assert callable(run.call_args.kwargs["progress"])
+    assert "camera" not in inspect.signature(nef.process_nef).parameters
+    run.reset_mock()
+    with pytest.raises(SystemExit) as error:
+        nef.main([str(source), "--camera", "main"])
+    assert error.value.code == 2
+    run.assert_not_called()
     run.side_effect = RuntimeError("missing converter")
     assert nef.main([str(tmp_path / "input.NEF"), "--method", "native"]) == 1
 

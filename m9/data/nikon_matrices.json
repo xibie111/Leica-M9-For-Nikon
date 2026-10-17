@@ -1980,7 +1980,7 @@
       "source_function": "LibRaw::simple_coeff",
       "source_index": 3,
       "source_file": "src/tables/colordata.cpp",
-      "source_line": 1913,
+      "source_line": 1924,
       "models": [
         "COOLPIX 880",
         "E880",
@@ -1996,6 +1996,20 @@
       ],
       "coefficient_scale": 1,
       "source_coefficient_type": "C++ float",
+      "source_coefficient_literals": [
+        "-1.936280f",
+        "1.800443f",
+        "-1.448486f",
+        "2.584324f",
+        "1.405365f",
+        "-0.524955f",
+        "-0.289090f",
+        "0.408680f",
+        "-1.204965f",
+        "1.082304f",
+        "2.941367f",
+        "-1.818705f"
+      ],
       "coefficients": [
         -1.93628,
         1.800443,

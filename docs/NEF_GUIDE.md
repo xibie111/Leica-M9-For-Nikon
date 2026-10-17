@@ -1,6 +1,10 @@
-# Nikon Z7 II / Z6 III NEF 本地处理
+# Nikon NEF 本地处理
 
-这份入口把 Nikon NEF 接到现有 M9 后续处理。默认使用主摄 main 调校、D50 白平衡逻辑、EV=0，输出质量 95、嵌入 Display P3 ICC 的普通 SDR JPEG。原始 NEF 不会改写。
+这份入口把 Nikon NEF 接到现有 M9 后续处理。日常 NEF 单张 CLI/API、GUI 和批量队列统一使用完整的长焦 tele 调校、D50 白平衡逻辑、额外 EV=0，输出质量 95、嵌入 Display P3 ICC 的普通 SDR JPEG。原始 NEF 不会改写。
+
+tele 直接使用上游 `ae_tele` 和 tele IPE、色彩、gamma、TMC 调校，共享原 low/high StyleTrans 与 colorfix 网络及选择门限。它改变的是整条已有相机管线，不额外加曝光、曲线或阴影修饰。滤镜 zoom 按原 NEF 的 35mm 等效焦距除以 23，限制在 3.2–4.3；缺失、零或负值取 4.3。此参数用于 LeicaFilter LUT 和暗角，不裁切或放大照片。窗口固定显示“调校：tele（长焦）”，没有新增选择开关。
+
+独立的原始 DNG 命令 `python -m m9.render` 仍默认 main；其显式 `--camera tele` 用法和通用前端默认值保持原状。NEF 默认切换的范围、实拍对照和证据见 [tele 默认管线验收](NEF_TELE_DEFAULT.md)。
 
 ## 当前电脑启动
 
@@ -13,7 +17,7 @@
 
 分辨率默认 `original`，设备默认 `auto`。`auto` 在 CUDA 可用时使用 CUDA，否则使用 CPU；显式 `cuda` 不可用时会报错。CPU 处理完整尺寸照片可能需要较长时间。
 
-输出命名示例：`DSC_0001_M9_native_original.jpg`。默认只生成 JPEG；需要旁边的 JSON 处理记录时，勾选“导出 JSON 处理报告”。该选项默认关闭，关闭时窗口的阶段和日志仍正常显示。已有同名结果不会覆盖，不同来源的同名照片自动递增输出名。JPEG 完整写入后才发布为正式文件；失败时不会留下同名的半成品 JPEG。
+输出命名示例：`DSC_0001_M9_tele_native_original.jpg`。`_tele_` 区分新默认管线与旧 main 成片；处理记录中的 `camera_tuning="tele"` 和 `zoom` 表示实际采用的调校及滤镜参数。默认只生成 JPEG；需要旁边的 JSON 处理记录时，勾选“导出 JSON 处理报告”。该选项默认关闭，关闭时窗口的阶段和日志仍正常显示。已有同名结果不会覆盖，不同来源的同名照片自动递增输出名。JPEG 完整写入后才发布为正式文件；失败时不会留下同名的半成品 JPEG。
 
 ## 队列、停止与失败
 
@@ -94,7 +98,7 @@ rawpy 的 `rgb_xyz_matrix` 名字容易引起方向误读；其底层返回 LibR
 
 直接 NEF 路径把相机 as-shot 白平衡换成 neutral，以单矩阵求场景白点，再用 McCamy 估算 CCT；处理记录标注 `cct_is_approximate=true` 和来源。它不是 DNG 的双光源标定。DNG 路径保留既有双矩阵插值逻辑，转换后检查色彩矩阵、as-shot neutral、曝光、CFA 马赛克、无损压缩和有效尺寸。
 
-Z6 III 标准压缩 NEF 另有一项相机兼容适配：本环境 LibRaw 0.21.4 没有该机型的颜色矩阵，程序仅在确认机型、标准 CFA 压缩结构且库返回全零矩阵时，使用核对过的 [LibRaw 0.22.0 官方 Z6_3 矩阵](https://github.com/LibRaw/LibRaw/blob/0.22.0/src/tables/colordata.cpp#L1036-L1037)。日志和处理记录注明来源；已有有效矩阵的路径保持原样。HE/HE* 不在这项适配范围内，其他未知或损坏矩阵仍明确报错。此适配不更改 M9 曝光、风格或模型门限，也不会自动切换到 DNG。
+程序已收录固定 LibRaw 0.22.1 表中的全部尼康矩阵：93 条 XYZ→camera（85 条三通道、8 条四通道），并单独保留 E880/E900/E990 的旧式矩阵。仅在库返回全零矩阵、明确机型匹配且满足标准 CFA 输入条件时补全三通道矩阵；已有有效矩阵的路径保持原样。四通道、HE/HE*、未知机型及损坏矩阵不因收录目录而获得支持。完整机型、来源、范围和回归见 [尼康矩阵目录](NIKON_MATRICES.md)。此适配不更改 M9 曝光、风格或模型门限，也不会自动切换到 DNG。
 
 38 张 Z6 III 全部成功重跑的结果、原件哈希和 Z7 II 回归见 [Z6 III 修复验收](NEF_Z6III_VALIDATION.md)；成片在 `E:\m9output\native_matrix_fix_20261017\photos`，查看入口为上层的 `查看修复结果.html`。更新后需重新打开窗口才能载入修复。
 

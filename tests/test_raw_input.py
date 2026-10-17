@@ -8,6 +8,7 @@ import pytest
 import tifffile
 
 from m9 import frontend, raw_input
+from m9.nikon_matrices import nikon_matrix_catalog
 
 
 # LibRaw Nikon Z 7 / Z 7_2 table. Its asymmetry detects an accidental transpose.
@@ -76,7 +77,7 @@ def z6_zero_case(nef, monkeypatch):
     converter.assert_not_called()
 
 
-@pytest.mark.parametrize("model", ["NIKON Z6_3", "  nikon z6_3  "])
+@pytest.mark.parametrize("model", ["NIKON Z6_3", "  nikon z6_3  ", "NIKON Z 6 III"])
 def test_native_z6_zero_matrix_uses_only_exact_upstream_profile(z6_zero_case, model):
     path, raw, metadata = z6_zero_case
     metadata["Model"] = model
@@ -91,38 +92,80 @@ def test_native_z6_zero_matrix_uses_only_exact_upstream_profile(z6_zero_case, mo
     assert info.cct == pytest.approx(6503, abs=30)
     assert info.exposure_time == 1 / 125 and info.iso == 200 and info.fnumber == 2.8
     assert info.extra["method"] == "native"
-    assert "0.22.0" in info.extra["matrix_source"] and "XYZ -> camera" in info.extra["matrix_source"]
+    assert "0.22.1" in info.extra["matrix_source"] and "XYZ -> camera" in info.extra["matrix_source"]
     profile = info.extra["matrix_compatibility_profile"]
     np.testing.assert_array_equal(np.asarray(profile["xyz_to_camera"], np.float32), Z6_3_XYZ_TO_CAM)
     assert profile["camera_model"] == "NIKON Z6_3"
-    assert profile["upstream_libraw_version"] == "0.22.0"
+    assert profile["upstream_libraw_version"] == "0.22.1"
+    assert profile["matched_model"] == model.strip()
     assert profile["reason"] == "installed LibRaw returned an all-zero cam_xyz"
-    assert "libraw" in profile["source_url"].lower() and profile["source_url"].startswith("https://")
+    assert profile["source_url"] == "https://github.com/LibRaw/LibRaw/blob/0.22.1/src/tables/colordata.cpp#L1036"
     assert profile["raw_strip_signature"] == b"test".hex()
-    assert any("0.22.0" in message and "Z6_3" in message for _, message in
+    assert any("0.22.1" in message and "Z6_3" in message for _, message in
                (call.args for call in progress.call_args_list))
 
 
-@pytest.mark.parametrize("model", ["NIKON Z6_3", "NIKON Z 7_2"])
-def test_native_valid_existing_matrix_is_preserved_without_compatibility_profile(z6_zero_case, model):
+@pytest.mark.parametrize("model", ["NIKON Z6_3", "NIKON Z 7_2", "NIKON COOLPIX 700", "NIKON UNKNOWN"])
+def test_native_valid_existing_matrix_is_preserved_without_compatibility_profile(z6_zero_case, monkeypatch, model):
     path, raw, metadata = z6_zero_case
     metadata["Model"] = model
     metadata.pop("StripOffsets")  # Valid installed matrices do not need this compatibility guard.
     raw.rgb_xyz_matrix = np.vstack([NIKON_XYZ_TO_CAM, np.zeros(3)])
     raw.camera_whitebalance = FakeRaw().camera_whitebalance
+    lookup = Mock(side_effect=AssertionError("valid installed matrices must not consult the backport"))
+    monkeypatch.setattr(raw_input, "lookup_nikon_matrix", lookup)
     _, matrix, info = raw_input.load_nef(path, method="native")
     expected_wb, expected_matrix = frontend.camera_d50_transform(NIKON_XYZ_TO_CAM)
     np.testing.assert_allclose(matrix, expected_matrix, rtol=0, atol=1e-7)
     np.testing.assert_allclose(raw.kwargs["user_wb"][:3], expected_wb, rtol=0, atol=1e-7)
     assert "matrix_compatibility_profile" not in info.extra
     assert info.extra["matrix_source"] == "LibRaw cam_xyz (XYZ -> camera), single matrix"
+    lookup.assert_not_called()
 
 
-@pytest.mark.parametrize("model", ["NIKON Z 7_2", "NIKON Z6_2", "NIKON Z6_3 stale", "NIKON Z 6_3"])
+@pytest.mark.parametrize("model", ["NIKON UNKNOWN", "NIKON D50X", "NIKON D5000garbage",
+                                  "NIKON Z6_3 stale", "NIKON Z 6_3"])
 def test_native_unknown_or_wrong_model_zero_matrix_is_not_repaired(z6_zero_case, model):
     path, raw, metadata = z6_zero_case
     metadata["Model"] = model
     with pytest.raises(ValueError, match="matrix"):
+        raw_input.load_nef(path, method="native")
+    assert raw.kwargs is None
+
+
+@pytest.mark.parametrize("make", ["NIKON CAMERAS", "NIKON CORPORATION LTD", "NOT NIKON"])
+def test_native_zero_matrix_does_not_accept_a_make_containing_nikon(z6_zero_case, make):
+    path, raw, metadata = z6_zero_case
+    metadata["Make"] = make
+    with pytest.raises(ValueError, match="matrix"):
+        raw_input.load_nef(path, method="native")
+    assert raw.kwargs is None
+
+
+@pytest.mark.parametrize("entry", [entry for entry in nikon_matrix_catalog()["entries"]
+                                 if len(entry["coefficients"]) == 9], ids=lambda entry: entry["model_prefix"])
+def test_native_all_known_three_channel_profiles_handle_missing_matrix(z6_zero_case, entry):
+    path, raw, metadata = z6_zero_case
+    metadata["Model"] = "NIKON " + entry["models"][0]
+    expected = np.asarray(entry["coefficients"], np.float32).reshape(3, 3) / np.float32(10000)
+    neutral = expected.astype(np.float64) @ np.array([.95047, 1., 1.08883])
+    raw.camera_whitebalance = [neutral[1] / value for value in neutral] + [1.]
+    rgb, matrix, info = raw_input.load_nef(path, method="native")
+    expected_wb, expected_matrix = frontend.camera_d50_transform(expected)
+    np.testing.assert_array_equal(matrix, expected_matrix)
+    np.testing.assert_array_equal(np.asarray(info.extra["matrix_compatibility_profile"]["xyz_to_camera"], np.float32), expected)
+    np.testing.assert_allclose(raw.kwargs["user_wb"][:3], expected_wb, rtol=0, atol=1e-7)
+    np.testing.assert_array_equal(rgb, np.full((6, 8, 3), np.float32(32768) / np.float32(65535)))
+    assert info.cct == pytest.approx(6503, abs=30)
+    assert info.extra["matrix_compatibility_profile"]["camera_model"] == "NIKON " + entry["model_prefix"]
+
+
+@pytest.mark.parametrize("entry", [entry for entry in nikon_matrix_catalog()["entries"]
+                                 if len(entry["coefficients"]) == 12], ids=lambda entry: entry["model_prefix"])
+def test_native_four_channel_profile_is_never_truncated_to_three(z6_zero_case, entry):
+    path, raw, metadata = z6_zero_case
+    metadata["Model"] = "NIKON " + entry["models"][0]
+    with pytest.raises(ValueError, match="four colour channels"):
         raw_input.load_nef(path, method="native")
     assert raw.kwargs is None
 
@@ -150,7 +193,9 @@ def test_native_z6_nonzero_or_malformed_matrix_is_not_replaced(z6_zero_case, fai
 
 
 @pytest.mark.parametrize("key,value", [
-    ("Compression", 7), ("Compression", 1), ("PhotometricInterpretation", 2), ("SamplesPerPixel", 3),
+    ("Compression", 7), ("Compression", 34713.5), ("Compression", 1.5),
+    ("PhotometricInterpretation", 2), ("PhotometricInterpretation", 32803.5),
+    ("SamplesPerPixel", 3), ("SamplesPerPixel", 1.5),
     ("StripOffsets", ()), ("StripOffsets", (0, 4)), ("StripOffsets", (-1,)),
     ("StripOffsets", (.5,)), ("StripOffsets", (np.inf,)), ("StripOffsets", (np.nan,)),
     ("StripOffsets", None), ("StripOffsets", (1000,)), ("StripOffsets", ("invalid",)),
@@ -159,6 +204,24 @@ def test_native_z6_profile_rejects_nonstandard_or_malformed_raw_header(z6_zero_c
     path, raw, metadata = z6_zero_case
     metadata[key] = value
     with pytest.raises(ValueError):
+        raw_input.load_nef(path, method="native")
+    assert raw.kwargs is None
+
+
+def test_native_uncompressed_profile_does_not_mistake_pixels_for_he_magic(z6_zero_case):
+    path, raw, metadata = z6_zero_case
+    metadata["Compression"] = 1
+    path.write_bytes(b"\xff\x10\xff\x50pixels")
+    _, _, info = raw_input.load_nef(path, method="native")
+    assert raw.kwargs is not None
+    assert info.extra["matrix_compatibility_profile"]["raw_strip_signature"] == "ff10ff50"
+
+
+def test_native_uncompressed_profile_also_rejects_incomplete_strip(z6_zero_case):
+    path, raw, metadata = z6_zero_case
+    metadata["Compression"] = 1
+    path.write_bytes(b"abc")
+    with pytest.raises(ValueError, match="incomplete"):
         raw_input.load_nef(path, method="native")
     assert raw.kwargs is None
 
@@ -183,7 +246,8 @@ def test_native_z6_profile_checks_actual_raw_subifd_and_strip_offset(z6_zero_cas
     assert info.extra["matrix_compatibility_profile"]["raw_strip_signature"] == "01020304"
 
 
-@pytest.mark.parametrize("failure", ["zero_wb", "nan_wb", "nonphysical_cct", "not_bayer"])
+@pytest.mark.parametrize("failure", ["zero_wb", "nan_wb", "nonphysical_cct", "not_bayer",
+                                     "four_colors", "not_rgb", "wrong_cfa_shape"])
 def test_native_z6_profile_retains_white_balance_scene_and_cfa_guards(z6_zero_case, failure):
     path, raw, _ = z6_zero_case
     if failure == "zero_wb":
@@ -192,8 +256,14 @@ def test_native_z6_profile_retains_white_balance_scene_and_cfa_guards(z6_zero_ca
         raw.camera_whitebalance = [np.nan, 1, 1, 1]
     elif failure == "nonphysical_cct":
         raw.camera_whitebalance = [10, 1, 10, 1]
-    else:
+    elif failure == "not_bayer":
         raw.raw_pattern = None
+    elif failure == "four_colors":
+        raw.num_colors = 4
+    elif failure == "not_rgb":
+        raw.color_desc = b"CMYG"
+    else:
+        raw.raw_pattern = np.zeros((3, 3))
     with pytest.raises(ValueError):
         raw_input.load_nef(path, method="native")
     assert raw.kwargs is None

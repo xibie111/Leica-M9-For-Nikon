@@ -3,11 +3,12 @@ import hashlib
 import json
 from pathlib import Path
 import queue
+from unittest.mock import Mock
 
 from PIL import Image
 import pytest
 
-from m9 import nef
+from m9 import frontend, nef
 from m9.batch import BatchJob, BatchOptions, PhotoQueue
 from m9.uhdr import icc_p3
 from test_nef import pipeline  # Reuse the established RAW/network boundary fixture.
@@ -50,12 +51,15 @@ def test_batch_real_publication_preserves_prior_results_and_continues(
     paths = _same_basename_sources(source, tmp_path)
     before = _hashes(paths)
     output.mkdir()
-    sentinel = output / f"{source.stem}_M9_native_original.jpg"
+    sentinel = output / f"{source.stem}_M9_tele_native_original.jpg"
     sentinel.write_bytes(b"preexisting user result")
     sentinel.with_suffix(".json").write_bytes(b"preexisting user report")
     initial_files = {path: path.read_bytes() for path in output.iterdir()}
     state = {"current": None, "files_before_failure": {}}
     decoded = decode.return_value
+    focal_lengths = dict(zip(paths, (75, 98.9, 50)))
+    metadata = Mock(side_effect=lambda path: {"FocalLengthIn35mmFilm": focal_lengths[Path(path)]})
+    monkeypatch.setattr(frontend, "dng_tags", metadata)
 
     def load(path, **kwargs):
         state["current"] = Path(path)
@@ -95,6 +99,7 @@ def test_batch_real_publication_preserves_prior_results_and_continues(
     assert "middle" in items[1].error
     outputs = [Path(item.report["output"]) for item in (items[0], items[2])]
     assert len(set(outputs)) == 2 and sentinel not in outputs
+    assert [path.name for path in outputs] == [f"{source.stem}_M9_tele_native_original_{n}.jpg" for n in (2, 3)]
     assert len(list(output.glob("*.jpg"))) == 3
     assert len(list(output.glob("*.json"))) == (3 if write_json else 1)
     for item, path in zip((items[0], items[2]), outputs):
@@ -107,10 +112,17 @@ def test_batch_real_publication_preserves_prior_results_and_continues(
         assert report["input_sha256"] == before[item.path]
         assert report["jpeg_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
         assert report["models"]["StyleTrans"] == "on"
+        assert report["camera_tuning"] == "tele" and report["ev"] == 0.0
+        assert report["zoom"] == pytest.approx(75 / 23 if item is items[0] else 3.2)
         if write_json:
             assert json.loads(Path(report["record"]).read_text(encoding="utf-8")) == report
         else:
             assert report["record"] is None and not path.with_suffix(".json").exists()
+    focal_paths = [call.args[0] for call in metadata.call_args_list]
+    assert focal_paths == [str(path) for path in (paths if failure_stage == "publish" else (paths[0], paths[2]))]
+    assert all(call.kwargs == {"ev": 0.0, "camera": "tele"} for call in nef.b2y_from_raw.call_args_list)
+    assert [call.kwargs["zoom"] for call in nef.LeicaFilter.return_value.call_args_list] == pytest.approx(
+        [75 / 23, 4.3, 3.2] if failure_stage == "publish" else [75 / 23, 3.2])
     assert not list(output.glob("*.lock")) and not list(output.glob("*.part"))
     assert events[-1] == ("finished", {"total": 3, "completed": 3, "succeeded": 2,
                                       "failed": 1, "stopped": False})
@@ -138,6 +150,8 @@ def test_stop_during_publication_finishes_active_pair_and_keeps_rest_pending(
     assert [item.status for item in items] == ["succeeded", "pending", "pending"]
     assert decode.call_count == 1
     report = items[0].report
+    assert report["camera_tuning"] == "tele" and report["zoom"] == 4.3
+    assert Path(report["output"]).name == f"{source.stem}_M9_tele_native_original.jpg"
     assert json.loads(Path(report["record"]).read_text(encoding="utf-8")) == report
     with Image.open(report["output"]) as image:
         image.load()

@@ -65,10 +65,38 @@ def test_native_first_defaults_and_keyboard_order(tk_window):
     assert window.resolution.get() == "original"
     assert window.device.get() == "auto"
     assert window.write_json.get() is False
+    assert window.tuning_label.cget("text") == "调校：tele（长焦）"
     assert str(window.progressbar.cget("mode")) == "determinate"
     assert tk_window.winfo_width() == 1000
     assert window.tree.winfo_height() > 100
     assert window.summary.get() == "本轮 0/0 · 成功 0 · 失败 0"
+
+
+@pytest.mark.parametrize("method", ["native", "dng"])
+def test_default_gui_processor_uses_shared_core_without_camera_override(tmp_path, tk_window, monkeypatch, method):
+    from m9 import nef
+    calls = []
+
+    def core(input_path, output_dir, method="dng", resolution="original", device="auto",
+             converter=None, progress=None, write_json=False):
+        calls.append((input_path, method, resolution, device, write_json))
+        progress("frontend", "tele")
+        return {"output": str(output_dir / f"{input_path.stem}_M9_tele_{method}_{resolution}.jpg"),
+                "record": None, "camera_tuning": "tele"}
+
+    monkeypatch.setattr(nef, "process_nef", core)
+    window = NefWindow(tk_window)  # Exercise the production lazy import and BatchJob together.
+    source = tmp_path / "照片.NEF"
+    source.write_bytes(b"synthetic input")
+    window.add_paths([source])
+    window.output_dir.set(str(tmp_path / "输出"))
+    (window.native_button if method == "native" else window.dng_button).invoke()
+    pump(tk_window, lambda: not window.busy)
+    assert calls == [(source.resolve(), method, "original", "auto", False)]
+    item, = window.photo_queue.items
+    assert item.status == "succeeded" and item.report["camera_tuning"] == "tele"
+    assert f"_M9_tele_{method}_original.jpg" in window.tree.item(item.id, "values")[3]
+    assert "tele" in window.log.get("1.0", "end")
 
 
 def test_photo_and_current_folder_import_remove_and_clear(tmp_path, tk_window, monkeypatch):

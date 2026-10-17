@@ -1,4 +1,4 @@
-"""Single-file Nikon NEF -> M9 SDR JPEG, with explicit input route and no fallback."""
+"""Single-file Nikon NEF -> tele M9 SDR JPEG, with explicit input route and no fallback."""
 from __future__ import annotations
 
 import argparse
@@ -24,6 +24,7 @@ from .device import resolve_device
 from .frontend import b2y_from_raw
 from .leicafilter import LeicaFilter
 from .raw_input import load_nef
+from .render import _tele_zoom
 from . import styletrans
 from .uhdr import icc_p3, srgb_to_p3, _seg
 
@@ -168,9 +169,10 @@ def process_nef(input_path, output_dir, method="dng", resolution="original", dev
             st = styletrans.load(device=selected, strict=True)
         with phase("raw", "转换并解码 RAW" if method == "dng" else "直接解码 NEF"):
             linear, cam2srgb, info = load_nef(source, method=method, converter=converter, progress=notify)
+            zoom = _tele_zoom(str(source))
         source_size = [int(linear.shape[1]), int(linear.shape[0])]
-        with phase("frontend", "M9 测光与色彩处理"):
-            fe = b2y_from_raw(linear, cam2srgb, info, ev=0.0, camera="main")
+        with phase("frontend", "tele M9 测光与色彩处理"):
+            fe = b2y_from_raw(linear, cam2srgb, info, ev=0.0, camera="tele")
         del linear
         fe.lin = None  # SDR only: release the full-resolution linear branch before the networks.
         image = fe.rgb
@@ -179,7 +181,7 @@ def process_nef(input_path, output_dir, method="dng", resolution="original", dev
             image = st(image, fe.lux_index, fe.cct, resolution=resolution, progress=notify)
         with phase("filter", "LeicaFilter LUT 与暗角"):
             image = LeicaFilter(device=selected)(image, lux_index=fe.lux_index, cct=fe.cct,
-                                                  zoom=1.0, scene="common", style_trans_on=True)
+                                                  zoom=zoom, scene="common", style_trans_on=True)
         model_dir = Path(st.be.wdir)
         import torch
         report = {
@@ -187,7 +189,7 @@ def process_nef(input_path, output_dir, method="dng", resolution="original", dev
             "method": method, "resolution": resolution, "device_requested": device,
             "device": selected, "input_size": source_size,
             "output_size": [int(image.shape[1]), int(image.shape[0])],
-            "camera_tuning": "main", "white_balance": "D50 locked", "ev": 0.0,
+            "camera_tuning": "tele", "zoom": zoom, "white_balance": "D50 locked", "ev": 0.0,
             "jpeg_quality": 95, "icc": "Display P3", "hdr": False,
             "raw_info": asdict(info), "cct_kelvin": float(fe.cct), "lux_index": float(fe.lux_index),
             "exposure": {**asdict(fe.ae), "short_adjustment_ev": math.log2(fe.ae.exp_short)},
@@ -209,7 +211,7 @@ def process_nef(input_path, output_dir, method="dng", resolution="original", dev
         # The public return value and the on-disk record must use the same JSON-compatible types.
         report = json.loads(json.dumps(report, default=_json_value, allow_nan=False))
         # Encoding is expensive; hand the already encoded data to the writer once.
-        stem = f"{source.stem}_M9_{method}_{resolution}"
+        stem = f"{source.stem}_M9_tele_{method}_{resolution}"
         with _target(output_dir, stem) as target:
             report["output"] = str(target)
             report["record"] = str(target.with_suffix(".json")) if write_json else None

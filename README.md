@@ -1,65 +1,191 @@
 # Leica M9 For Nikon
 
-本项目独立维护 Nikon NEF 电脑本地处理、全尺寸输出、图形界面和批量队列。模型来源：StyleTrans low/high/colorfix 权重、原有 M9 渲染管线与相关逆向资料来自 [benbaobaoshigemi/OffLineM9](https://github.com/benbaobaoshigemi/OffLineM9)，其模型与调校数据还原自小米 17 Ultra「徕卡一瞬 · M9」。
+面向 Nikon NEF 的电脑本地「徕卡一瞬 · M9」风格处理工具，提供原生 NEF / 自动转 DNG 两条输入路径、全尺寸细节处理、Windows 图形界面和批量队列。
 
-Nikon Z7 II / Z6 III NEF 的电脑本地双路入口：双击 `launch_nef_gui.cmd` 使用批量队列，或运行单张命令
-`python -m m9.nef INPUT.NEF --method native --output-dir DIR`。
-自动转 DNG 使用 `--method dng`；CLI/API 未指定 method 时默认仍为 dng。
-独立环境、全尺寸处理及验证边界见 [NEF 使用说明](docs/NEF_GUIDE.md)。
+本项目基于 [benbaobaoshigemi/OffLineM9](https://github.com/benbaobaoshigemi/OffLineM9) 独立维护。原有渲染管线、StyleTrans low/high/colorfix 网络权重和逆向资料来自上游，其风格调校还原自小米 17 Ultra「徕卡一瞬 · M9」。本项目新增的工作集中在尼康适配、桌面使用体验和可重复验证，没有重新训练一套模型。
 
-```
-python -m m9.render input.dng -o out.jpg [--camera main|tele] [--zoom Z] [--ev 0] [--lux-index N] [--cct K] [--half]
-```
-> **复现建议使用主摄版本**（`--camera main`，默认）：主摄是 M9 调校最完整、与实拍观感最接近的一路；长焦版仅作参考。
+## 相比上游，增加了什么
 
-**两个版本**（见 FINDINGS.md「M9 跨摄像头一致性」）：
-- `--camera main`（默认）：主摄 ovx10500u 的 Legend 调校——AE 压暗（base 26 × Stylization 0.6–0.7，mode 37/42）、
-  M9 gamma/cc/cv/tdl/tmc（LTM 关、GTM 100%）。
-- `--camera tele`：长焦 s5khpe 的 Legend 调校（sensor mode 4）——M9 gamma/cc/cv/tdl/tmc，意图与主摄一致（LTM 关、
-  GTM 100%、降饱和）；AE 按原版长焦 Legend 不整体压暗（只压人脸目标），所以比主摄亮约 1–1.5 EV。
-  暗角按变焦倍率（默认由 DNG 等效焦距/23mm 推出，限 3.2–4.3x）。
-- 三颗共有、两版相同：AWB 锁定、StyleTrans、LeicaFilter。超广角未做。
-真值来源：17U ROM（OS3.0.308）。详细逆向记录见 `M9-style-analysis.md`、`FINDINGS.md`。
+以最初引入的上游版本 `17cd094` 为基准：
 
-## 仓库结构
-| 目录 | 内容 |
+| 方面 | 上游基础 | 本项目增加的能力 |
+|---|---|---|
+| 输入 | 以 DNG 为入口的离线渲染 | 原生 NEF 解码、自动转换无损马赛克 DNG，两路明确选择 |
+| 尼康适配 | 通用 DNG 元数据与颜色矩阵 | NEF 曝光、白平衡、方向、有效照片区域及缺失相机矩阵适配 |
+| 大图处理 | 大图先缩入约 4K 工作画布，最后放大 | `original` 模式将风格映射回全尺寸，并用全尺寸输入运行 colorfix |
+| 日常使用 | 单张命令行 | Windows 界面、多选与文件夹导入、串行批量、完成当前张后停止、失败项重新入队 |
+| 输出与错误处理 | 通用渲染及可选后端 | NEF 入口严格要求网络成功；完整写入后发布、防覆盖、明确记录失败 |
+| 验证 | 上游逆向与节点校验 | Z7 II / Z6 III 实拍、输入输出哈希、同图管线对照、窗口及队列回归 |
+
+主摄 `main` 与长焦 `tele` 都是上游已有管线。本项目完成了它们在同一批 NEF 上的对照，并将日常 NEF 入口统一为完整的 **tele 管线**；这不是强制切换 low/high 网络，也不是在主摄成片上额外提亮。
+
+## 快速开始
+
+当前安装与启动脚本面向 **Windows x64、Python 3.12**，Python 需包含 Tkinter。CUDA 路径需要相容的 NVIDIA 显卡和驱动；依赖安装到项目内的 `.venv`。
+
+在仓库根目录打开 PowerShell，按设备选择一种安装方式：
+
+~~~powershell
+# NVIDIA CUDA 环境
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup_nef.ps1 -Device cuda
+
+# 纯 CPU 环境
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup_nef.ps1 -Device cpu
+~~~
+
+安装需要联网下载依赖。完成后启动界面：
+
+~~~powershell
+.\launch_nef_gui.cmd
+~~~
+
+1. 点击“添加照片”多选 NEF，或“添加文件夹”导入当前层文件；文件夹导入不递归。
+2. 选择输出目录，按需设置分辨率与设备。
+3. 点击“直接 NEF 处理”；如需走转换路径，选择“自动转 DNG 处理”。
+4. 在队列中查看当前照片、阶段、成功或失败状态；处理结束后可打开输出目录。
+
+“停止队列”会等待当前照片保存和清理完成，再停止后续任务；待处理照片可继续执行。单张失败后队列继续，失败项可以重新入队。队列仅保存在本次会话中。
+
+更新代码后，请关闭旧窗口再重新启动。安装、解释器选择、下载源与排错详见 [NEF 使用说明](docs/NEF_GUIDE.md)。
+
+### 单张命令行
+
+直接处理 NEF：
+
+~~~powershell
+.\process_nef.cmd "D:\Photos\DSC_0001.NEF" --method native --output-dir "D:\Photos\M9"
+~~~
+
+通过 Adobe DNG Converter 处理同一张 NEF：
+
+~~~powershell
+.\process_nef.cmd "D:\Photos\DSC_0001.NEF" --method dng --output-dir "D:\Photos\M9"
+~~~
+
+`dng` 路径需要另行安装支持该机型的 **Adobe DNG Converter**。转换结果为临时的无损压缩马赛克 RAW DNG，后续仍运行完整渲染；转换失败不会自动改走 native。
+
+也可以直接使用项目 Python 环境：
+
+~~~powershell
+.\.venv\Scripts\python.exe -m m9.nef "D:\Photos\DSC_0001.NEF" --method native --resolution original --device auto --output-dir "D:\Photos\M9"
+~~~
+
+| 参数 | 可选值 | 默认值 |
+|---|---|---|
+| `--method` | `native`、`dng` | `dng`，保留既有 CLI/API 兼容性；直接处理需显式写 `native` |
+| `--resolution` | `original`、`phone` | `original` |
+| `--device` | `auto`、`cuda`、`cpu` | `auto`，CUDA 可用时使用 CUDA，否则使用 CPU |
+| `--write-json` | 额外导出处理记录 | 关闭 |
+| `--converter` | 转换器可执行文件路径 | 自动查找标准安装位置 |
+
+界面将“直接 NEF 处理”放在前面。显式请求 CUDA 但设备不可用时会报错，任务失败后不会自动更换设备、输入路径或分辨率。
+
+## 当前处理管线
+
+~~~text
+NEF
+ ├─ native：rawpy / LibRaw 原生解码
+ └─ dng：Adobe 转换临时马赛克 DNG，再解码
+         ↓
+线性相机 RGB、D50 白平衡、曝光与色彩元数据
+         ↓
+tele AE 重测光、ADRC/TMC、色彩变换、TDL、gamma、CV
+         ↓
+StyleTrans low/high 风格推理 + colorfix 细节处理
+         ↓
+LeicaFilter LUT 与风格暗角
+         ↓
+嵌入 Display P3 ICC 的 SDR JPEG
+~~~
+
+日常 NEF 的单张 API、CLI、GUI 和批量队列共用处理核心，固定采用 `camera="tele"`、D50、额外 EV=0、JPEG 质量 95。使用上游 `ae_tele` 和 tele IPE 调校，保留原网络权重及选择门限，不额外增加曝光、对比度、阴影或人脸提亮。
+
+- **EV=0 仍会执行原有 AE。** 它表示没有额外手动曝光补偿，不表示保留查看器里的亮度。AE 短曝光增益、中间调目标和 ADRC 是不同指标，负的短曝光 EV 不能直接当作成片整体变暗的档数。
+- **tele 不裁切放大画面。** LeicaFilter 的 zoom 沿用上游规则：原片 35mm 等效焦距除以 23，限制在 3.2–4.3，缺失或非正值取 4.3。它是滤镜调校参数。
+- **low/high 是共享网络。** 仍按原 lux/CCT 条件选择，随后运行 colorfix；不存在本项目另行训练的“长焦网络”。
+- **原片与旧成片不覆盖。** 新文件名示例为 `DSC_0001_M9_tele_native_original.jpg`，重名时自动递增。JSON 默认不导出，开启后记录参数、模型状态、哈希和耗时，查看 JPEG 不依赖它。
+
+原始照片范围与方向按相机元数据处理。切换依据、入口范围及回归结果见 [tele 默认管线验收](docs/NEF_TELE_DEFAULT.md)。
+
+### original 与 phone
+
+两种模式都会生成经过 M9 风格处理的成片，名称表示工作分辨率策略：
+
+| 模式 | 处理方式 |
 |---|---|
-| `m9/` | 离线渲染器：前端（AE/AWB/IPE/TMC）、StyleTrans（PyTorch 后端 + QNN 模拟器后端）、LeicaFilter、GainMap、Ultra HDR 写入 |
-| `m9/assets/` | 从 ROM 解出的调校表（IPE、AE、LeicaFilter 参数、Display P3 ICC） |
-| `re/weights/` | StyleTrans low/high/colorfix 浮点权重（由 `decode/` 从 ROM 上下文二进制还原） |
-| `re/models/` | 解密后的 `.minn` 模型（QNN HTP 上下文二进制 / DLC） |
-| `re/*.c`、`re/miaec/` | Ghidra 反编译结果、mi_tuning 描述符 |
-| `tools/` | mi_tuning/chromatix/protobuf 解析、导出、校验脚本、Ghidra 无头脚本 |
-| `emu/src/` | qemu-aarch64 下直接调用 ROM 原版库的测试程序（TMC、chromatix 节点、libultrahdr） |
-| `decode/` | StyleTrans 权重解码工具链（HTP 上下文解析、量化/HMX 规则、导出）及其笔记 `HANDOFF.md` / `NOTES.md` |
-| `docs/claude-memory/` | 工作记忆笔记（约束、经验） |
-| `FINDINGS.md`、`M9-style-analysis.md` | 逆向发现与风格分析 |
+| `original` | 小图运行风格网络，将风格映射回全尺寸，colorfix 使用全尺寸输入保留更多细纹 |
+| `phone` | 沿用先缩入 4096×3072 工作画布的细节分支，再恢复输出尺寸，供对照使用 |
 
-不入库：ROM 本体与 sysroot、Ghidra 工程、样张 DNG、渲染输出、参考项目压缩包。
+`phone` 不是手机应用，也不是未处理原图。`original` 保留输出尺寸和更多细节来源，但网络内部仍有 8 位处理、纹理柔化与 JPEG 有损压缩，不能称为 RAW 无损输出。
 
-## 原版节点核对表（legendsnapshot.json 主链）
+## 尼康支持范围
 
-| 原版节点 | 原版做什么（已核实） | 离线实现 | 依据 / 取舍 |
-|---|---|---|---|
-| **AEC（libmiaec + mi_tuning）** | 主摄 Legend：base_target 26（普通 56）× Stylization 0.6–0.7（仅 mode 37/42，即 M9 所用模式）；长焦 Legend = 普通（base ~52）；short 目标保护高光；ADRC=mid/short ≤4.5 | `m9/ae.py`：对线性 RAW 用 M9 表重新测光（16×16 中心加权、亮块降权、亮部百分位参考目标、DRC 上限） | **必要取舍**：输入是别的相机已曝光的 RAW，只能重测光。直方图子调整（adaptive/mid/night/flat/color 等）的聚合代码未逆向，暂未实现 |
-| **AWB（libawbcore）** | `CalLegendModeGain`：**白平衡锁定在传感器 D50 点**（"Legend CCT:5000"），偏好偏移 1.0；统计 AWB 仍运行并报告场景 CCT | 用 DNG 色彩矩阵求 D50 光源下的相机中性点作为增益；场景 CCT 由 AsShotNeutral 求得，供各表插值/模型选择 | 与原版等价（D50 点由 DNG 标定代替 17U 标定） |
-| Anchor / MFNR | 多帧对齐降噪 | 不做 | **必要取舍**：DNG 已是相机合成后的单帧 |
-| AllinOne（libmialgo_aisp） | AI 降噪+BLC/LSC/WB，输出线性 RGB16，NR 路径不施加 ADRC | rawpy 线性解马赛克 | **必要取舍**：AI 降噪模型针对 17U 传感器；DNG 已含 BLC/LSC |
-| B2Y ForRGB – LTM（ltm21） | M9：LTM 曲线强度 #423=0、`lce_strength` #426=0（IPE 与 OFE 均为 0） | 无局部处理 | 精确 |
-| B2Y – TMC202 | 主摄、长焦 M9：gtm 100%、ltm 0% | `m9/tmc.py`：原版拐点 + 单调 Hermite 曲线，按 Y 比例增益施加 | **精确**（qemu 跑原版，4 组 lux/DRC 误差 ≤1.2e-6）；主摄、长焦 M9 均为 GTM 100%、LTM 0，无需局部算子 |
-| B2Y – CC（cc15） | M9 只有一组矩阵（A 弱；B 为 AI 类别矩阵） | DNG 色度矩阵 × `CC_M9·CC_normal⁻¹`（同档） | **必要取舍**：矩阵与传感器绑定，取相对变换；AI 类别混合（需 17U AI 分割）未做 |
-| B2Y – 2D LUT（tdl13） | M9 色相表（度，HSV，15° 格点）+ 饱和度表 | 原表按 lux/CCT/DRC 插值，HSV 双线性 | 精确（色相格点假设均匀 15°） |
-| B2Y – gamma152 | M9 曲线（强光档更平） | 原表插值 | 精确 |
-| B2Y – CV（cv122） | Cb=a[(B−G)+b(R−G)], Cr=c[(R−G)+d(B−G)]，M9 a/c 0.47–0.49 | 原参数 | 精确 |
-| **StyleTrans（legendST）** | low/high 风格网络（1024×768）+ colorfix（544 块）回贴 | `m9/styletrans.py` 前后处理按反汇编复刻；网络用 **QAIRT x86 HTP 模拟器执行 ROM 原版上下文二进制**（`m9/qnn_backend.py`） | 默认 PyTorch/GPU 后端（从 ROM 上下文二进制还原的浮点权重，`m9/torch_backend.py`，每张 10–25 s）；模拟器后端仅 `M9_BACKEND=qnn` 时使用 |
-| humanseg（StyleTrans 第 4 通道） | human_segmentation_768（LMSceneSeg） | 掩码置 0（无人像保护） | 按用户要求暂不处理；模型二进制段还有一层加密未解 |
-| Depurple（altek CFR） | 按镜头参数去紫边（w.bin），无 M9 专属 | 不做 | **必要取舍**：17U 镜头专用 |
-| WideLDC / LDC | 畸变校正 | 不做 | **必要取舍**：17U 镜头专用 |
-| **LeicaFilter** | 17³ LUT（lux×CCT 插值）+ CvStyle 暗角；StyleTrans 运行用 snapshot 参数，否则 preview 参数 | `m9/leicafilter.py` | 精确 |
-| **GainMap 支路**（B2Y GainmapForRGB → GainMap → GainMapPostProc → jpegrAggr） | B2Y 以 function 51 `UltraHdrLinearFrame` 调校（自有 gamma/tmc，cc/cv/tdl 同 M9）、数字增益 0.3（Legend）×LDR 修正；GainMap 取 (maxRGB+meanRGB)/2 生成 Y8（1/2 尺寸）；PostProc 按 ≥250 占比给 extraGain，maxBoost = extra×5.0 | `m9/gainmap.py` + `m9/uhdr.py`（Ultra HDR v1：XMP hdrgm + MPF），默认开启，`--no-hdr` 关闭 | 逐节点按反汇编复刻；ISO 21496-1 元数据与 ROM libultrahdr 输出逐字节一致；成片经 **ROM libultrahdr 解码器**（qemu，`emu/uhdr dec`）解出的线性 HDR 与 SDR×5^(g/255) 中位比 1.0016；LDC 不做（与主图一致）；主图未嵌 ICC（默认 sRGB） |
-| Watermark | 徕卡水印 | 不做 | 可选 |
+已用 **Z7 II 和 Z6 III** 的真实 NEF 完成处理验证，包含 FX/DX、横竖方向与多种场景。Z7 II 的无损压缩 NEF 已覆盖 native/DNG 两条路径。
 
-## 运行 StyleTrans（精确后端）
-- 需要 QAIRT SDK 2.33.0.250327（`M9_QAIRT`），Windows 下通过 WSL 运行 `qnn-net-run`（`M9_WSL_DISTRO`）。
-- 模型：`python tools/minn.py <rom>/odm/etc/camera/styletrans/styletrans_{low,high,colorfix}.minn re/models/styletrans_*.bin`。
-- 并行：`M9_QNN_JOBS`。关闭：`M9_QNN_SIM=0`（此时 LeicaFilter 使用 preview 参数，与原版 StyleTrans 不可用时的行为一致）。
+项目收录固定 **LibRaw 0.22.1** 官方表中的 93 条尼康 `adobe_coeff` 矩阵资料，其中 85 条三通道条目可用于符合条件的缺项补全，8 条四通道条目保留来源数据；另保留老款机型的 `simple_coeff` 数据。
+
+已有有效矩阵优先，仅在解码库返回完整全零矩阵、机型明确匹配且输入条件满足时补全。处理照片时不联网下载矩阵，也不靠近似型号猜测。
+
+**矩阵收录不等于所有机型都已实拍支持。** 当前 NEF 流程限于三色 RGB、2×2 Bayer；HE/HE★、四通道及其他特殊编码不在本次新增支持范围。机型、数据来源与拒绝条件见 [尼康矩阵目录](docs/NIKON_MATRICES.md)。
+
+## 已完成的验证
+
+以下为截至 **2026-10-17** 的实际记录，不代表所有机型或场景的画质保证：
+
+| 验证范围 | 实际结果 |
+|---|---|
+| Z7 II 样片 | 18 个不同 NEF 样本，分轮验证两路输入、两种分辨率、全尺寸细节与资源使用 |
+| Z6 III 样片 | 38 个不同 NEF 样本完成 native 批量处理，原片哈希前后相同 |
+| main / tele 对照 | 38 张完整配对，并提供 Windows 原生 RAW 默认显影与内嵌 JPEG 参考；重跑的 38 张 main 与旧版逐字节一致 |
+| tele 日常入口 | 4 张真实 GUI 队列成片与冻结 tele 结果逐字节一致；另完成 Z7 II 默认 DNG CLI 实测 |
+| 自动化回归 | tele 默认切换阶段 **382 项通过**，覆盖矩阵、元数据、几何、模型调用、输出发布及 CLI/GUI/队列连接 |
+
+两台机身合计 **56 个内容不同的 NEF 样本**。历史 main、native/DNG、original/phone 验收各有覆盖范围，不应理解为 56 张都运行过全部组合。
+
+tele 在本批对照中改善了许多主体偏暗的照片，同时也让部分夜景高光与噪点更明显，不能保证每张照片主观上都更好。Windows 原生 RAW 默认帧与相机内嵌 JPEG 都是显影参考；其显示编码亮度统计不能换算成真实曝光 EV，也不能代替手机实机验证。
+
+运行自动化测试：
+
+~~~powershell
+.\.venv\Scripts\python.exe -m pytest tests -q
+~~~
+
+详细证据与限制：
+
+- [NEF 实拍与全尺寸验收](docs/NEF_VALIDATION.md)
+- [批量队列验收](docs/NEF_BATCH_VALIDATION.md)
+- [Z6 III 兼容性修复与 38 张实测](docs/NEF_Z6III_VALIDATION.md)
+- [tele 默认管线验收](docs/NEF_TELE_DEFAULT.md)
+- [相机矩阵与 RAW 元数据说明](docs/RAW_MATRIX_NOTES.md)
+
+## 当前边界
+
+- 本项目复用的是小米「徕卡一瞬 · M9」风格管线，不承诺等同真正 Leica M9 传感器或小米手机实拍。
+- 上游离线 AE 仍有未完整复现的直方图、场景和人脸等子调整；跨相机测光与色彩也未取得实机等价或校准色彩证明。
+- native 路径的场景色温采用单矩阵近似；与 DNG 路径的估算不同，可能影响调校插值和模型选择。
+- 日常 NEF 入口当前输出 SDR JPEG，未提供手机端、Ultra HDR/TIFF 导出、新增降噪、人像分割或镜头校正。
+- 真实 CPU 全尺寸性能、长时间内存稳定性、校准色卡及部分暖光近距离人像仍未完整覆盖。安装或设备自检通过不等于完整渲染验收。
+
+这些边界不会通过额外自动增亮、任意曝光补偿或重新调曲线来掩盖。项目开发约束见 [AGENTS.md](AGENTS.md)。
+
+## 原始 DNG 渲染与技术资料
+
+上游研究入口继续保留，独立于日常 NEF 入口。它仍默认 `main`，可显式指定 `main` 或 `tele`：
+
+~~~powershell
+.\.venv\Scripts\python.exe -m m9.render "D:\Photos\input.dng" -o "D:\Photos\M9\main.jpg" --camera main --no-hdr
+.\.venv\Scripts\python.exe -m m9.render "D:\Photos\input.dng" -o "D:\Photos\M9\tele.jpg" --camera tele --no-hdr
+~~~
+
+| 路径 | 内容 |
+|---|---|
+| `m9/` | NEF 入口、界面与队列，以及上游渲染、网络、滤镜与 HDR 研究实现 |
+| `m9/assets/` | 原有 AE/IPE/LeicaFilter 调校与 Display P3 ICC |
+| `m9/data/` | 尼康矩阵目录及来源、版权与许可说明 |
+| `re/weights/` | 上游还原的 low/high/colorfix 权重 |
+| `tests/` | 输入、矩阵、几何、风格处理、输出与界面回归测试 |
+| `tools/` | 参数提取、矩阵目录生成、运行验证与逆向辅助工具 |
+| `docs/` | 使用说明、适配依据与分阶段验收记录 |
+| `decode/`、`re/`、`emu/` | 保留的上游权重解码、逆向资料和原库校验工具 |
+
+进一步阅读：[上游项目](https://github.com/benbaobaoshigemi/OffLineM9)、[逆向发现](FINDINGS.md)、[风格分析](M9-style-analysis.md)、[权重解码工具链](decode/HANDOFF.md)。尼康矩阵数据的提取与许可说明见 [LibRaw NOTICE](m9/data/LibRaw-NOTICE.txt)。

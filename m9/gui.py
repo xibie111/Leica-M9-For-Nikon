@@ -98,6 +98,8 @@ class NefWindow:
         self.device_box.pack(side="left", padx=8)
         self.write_json_check = ttk.Checkbutton(options, text="导出 JSON 处理报告", variable=self.write_json)
         self.write_json_check.pack(side="left", padx=12)
+        self.tuning_label = ttk.Label(options, text="调校：tele（长焦）")
+        self.tuning_label.pack(side="left", padx=12)
         self.native_button = ttk.Button(frame, text="直接 NEF 处理", command=lambda: self.start("native"))
         self.native_button.grid(row=4, column=0, sticky="ew", pady=(6, 3))
         self.dng_button = ttk.Button(frame, text="自动转 DNG 处理", command=lambda: self.start("dng"))
