@@ -1,4 +1,4 @@
-# OffLineM9-NEF — Nikon RAW 电脑本地处理
+# Leica M9 For Nikon
 
 本项目独立维护 Nikon NEF 电脑本地处理、全尺寸输出、图形界面和批量队列。模型来源：StyleTrans low/high/colorfix 权重、原有 M9 渲染管线与相关逆向资料来自 [benbaobaoshigemi/OffLineM9](https://github.com/benbaobaoshigemi/OffLineM9)，其模型与调校数据还原自小米 17 Ultra「徕卡一瞬 · M9」。
 
