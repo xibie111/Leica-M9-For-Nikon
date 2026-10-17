@@ -1,0 +1,8 @@
+# Python 3.12, tested Windows x64. Install CUDA torch separately (see NEF_GUIDE).
+numpy==2.2.6
+opencv-python-headless==4.12.0.88
+rawpy==0.25.1
+tifffile==2025.10.16
+Pillow==12.0.0
+psutil==7.1.0
+pytest==8.4.2

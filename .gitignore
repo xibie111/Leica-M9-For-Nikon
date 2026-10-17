@@ -13,3 +13,6 @@ emu/tmc
 emu/nodedump
 emu/uhdr
 __pycache__/
+.venv/
+.work/
+.pytest_cache/

@@ -1,0 +1,29 @@
+The Nikon coefficient inventory in nikon_matrices.json was extracted from
+LibRaw 0.22.1, src/tables/colordata.cpp, with the finite model inventory and
+aliases from src/tables/cameralist.cpp and src/metadata/normalize_model.cpp.
+tools/update_nikon_matrices.py is the extraction and audit script.
+
+Upstream source: https://github.com/LibRaw/LibRaw/tree/0.22.1
+Each input's exact URL and SHA-256 are recorded in nikon_matrices.json.
+The bytes used here were recovered from the vendored LibRaw source in the
+locally cached official rawpy-0.27.1 source distribution; its LibRaw version
+header identifies version 0.22.1. No later-version byte identity is claimed.
+
+The LibRaw source files allow a choice of LGPL-2.1 or CDDL-1.0. This extracted
+inventory is distributed under CDDL-1.0; see LibRaw-LICENSE.CDDL. The upstream
+copyright notice is retained in LibRaw-COPYRIGHT.txt. This notice applies to
+the extracted LibRaw data, not the surrounding application code.
+
+Original colordata.cpp notice:
+Copyright 2019-2025 LibRaw LLC (info@libraw.org)
+LibRaw uses code from dcraw.c -- Dave Coffin's raw photo decoder,
+dcraw.c is copyright 1997-2018 by Dave Coffin, dcoffin a cybercom o net.
+LibRaw do not use RESTRICTED code from dcraw.c
+All matrices are from Adobe DNG Converter unless otherwise noted.
+
+Changes: extraction into JSON, explicit expansion of shared prefixes only
+for known upstream models, addition of finite retail/EXIF generation aliases,
+and retention of black/maximum values for audit without applying them.
+The raw integer coefficients and XYZ-to-camera direction are unchanged.
+Four-channel entries remain in the inventory; this does not add native
+decoding or processing support for four-channel or non-Bayer input files.

@@ -31,6 +31,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .device import resolve_device
+
 ASSETS = os.path.join(os.path.dirname(__file__), "assets")
 
 
@@ -159,20 +161,21 @@ class LeicaFilterParams:
 
 
 # ------------------------------------------------------------------ shaders
-def _torch():
+def _torch(device=None):
     try:
         import torch
-        return torch, ("cuda" if torch.cuda.is_available() else "cpu")
+        return torch, resolve_device(device)
     except ImportError:
+        resolve_device(device)  # explicit CUDA must fail even when torch is absent
         return None, None
 
 
-def lut_apply(rgb: np.ndarray, lut: np.ndarray) -> np.ndarray:
+def lut_apply(rgb: np.ndarray, lut: np.ndarray, device=None) -> np.ndarray:
     """CubeLutEffect, lut_type=1: texture(lut, c*(N-1)/N + .5/N .zyx).bgr, strength 1.
 
     rgb: float32 [...,3] in 0..1. Trilinear filtering like GL_LINEAR on a 3D texture.
     """
-    torch, dev = _torch()
+    torch, dev = _torch(device)
     if torch is not None:
         return _lut_apply_torch(torch, dev, rgb, lut)
     n = lut.shape[0]
@@ -218,11 +221,11 @@ def _lut_apply_torch(torch, dev, rgb, lut):
     return out
 
 
-def _cvstyle_torch(torch, dev, rgb, p, current_time):
-    h, w = rgb.shape[:2]
+def _cvstyle_torch_rows(torch, dev, rgb, p, current_time, y0, h):
+    rows, w = rgb.shape[:2]
     start, end, coord_scale, value_scale, k, b, v, t = (float(x) for x in p)
-    ys = torch.arange(h, device=dev, dtype=torch.float32)[:, None].expand(h, w)
-    xs = torch.arange(w, device=dev, dtype=torch.float32)[None, :].expand(h, w)
+    ys = torch.arange(y0, y0 + rows, device=dev, dtype=torch.float32)[:, None]
+    xs = torch.arange(w, device=dev, dtype=torch.float32)[None, :]
     uvx = ((xs + 0.5) / w - 0.5) * w / h + 0.5
     uvy = (ys + 0.5) / h
     ux, uy = uvx - 0.5, uvy - 0.5
@@ -247,13 +250,26 @@ def _cvstyle_torch(torch, dev, rgb, p, current_time):
     return (x + (Y * (vig - 1.0))[..., None]).cpu().numpy()
 
 
+def _cvstyle_torch(torch, dev, rgb, p, current_time, chunk_rows=None):
+    """Bound GPU storage by rows while keeping whole-image vignette/noise coordinates."""
+    h, w = rgb.shape[:2]
+    step = chunk_rows or max(1, (1 << 20) // max(1, w))
+    out = np.empty(rgb.shape, np.float32)
+    with torch.inference_mode():
+        for y in range(0, h, step):
+            out[y:y + step] = _cvstyle_torch_rows(torch, dev, rgb[y:y + step], p,
+                                                 current_time, y, h)
+    return out
+
+
 def _nrand(u, v):
     return np.modf(np.sin(u * 12.9898 + v * 78.233) * 43758.5453)[0] % 1.0
 
 
-def cvstyle_apply(rgb: np.ndarray, p: np.ndarray, current_time: float = 0.0) -> np.ndarray:
+def cvstyle_apply(rgb: np.ndarray, p: np.ndarray, current_time: float = 0.0,
+                  device=None) -> np.ndarray:
     """CvStyleEffect (libMiPhotoFilter): luminance-only vignette, preserves extremes."""
-    torch, dev = _torch()
+    torch, dev = _torch(device)
     if torch is not None:
         return _cvstyle_torch(torch, dev, rgb, p, current_time)
     h, w = rgb.shape[:2]
@@ -297,14 +313,15 @@ class LeicaFilter:
     fallback ("use pre param for M9"): preview parameters, which bake in an
     approximation of the StyleTrans look."""
 
-    def __init__(self, assets: str = ASSETS):
+    def __init__(self, assets: str = ASSETS, device=None):
+        self.device = resolve_device(device)
         self.snapshot = LeicaFilterParams(os.path.join(assets, "leica_filter_param_m9_snapshot.bin"))
         self.preview = LeicaFilterParams(os.path.join(assets, "leica_filter_param_m9_preview.bin"))
 
     def __call__(self, rgb: np.ndarray, lux_index: float, cct: float, zoom: float = 1.0,
                  scene: str = "common", style_trans_on: bool = True, shading: bool = True) -> np.ndarray:
         p = self.snapshot if style_trans_on else self.preview
-        out = lut_apply(rgb, p.lut(scene, lux_index, cct))
+        out = lut_apply(rgb, p.lut(scene, lux_index, cct), device=self.device)
         if shading:
-            out = cvstyle_apply(out, p.shading_params(zoom, lux_index, cct))
+            out = cvstyle_apply(out, p.shading_params(zoom, lux_index, cct), device=self.device)
         return np.clip(out, 0.0, 1.0)

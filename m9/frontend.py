@@ -62,20 +62,62 @@ def _num(v) -> float:
         return 0.0
 
 
+def orientation_from_tags(tags: dict) -> int:
+    value = tags.get("Orientation", 1)
+    if not isinstance(value, (int, np.integer)) or isinstance(value, (bool, np.bool_)) or not 1 <= int(value) <= 8:
+        raise ValueError("TIFF Orientation must be an integer from 1 to 8")
+    return int(value)
+
+
+def scene_cct_from_xyz(xyz: np.ndarray) -> float:
+    xyz = np.asarray(xyz, np.float64)
+    if xyz.shape != (3,) or not np.isfinite(xyz).all() or np.any(xyz <= 0):
+        raise ValueError("RAW matrix and as-shot neutral imply an invalid scene white")
+    total = xyz.sum()
+    if not np.isfinite(total) or total <= 0:
+        raise ValueError("RAW scene white has invalid XYZ normalization")
+    x, y = xyz[:2] / total
+    if abs(0.1858 - y) < 1e-8:
+        raise ValueError("Cannot estimate scene CCT from RAW white balance")
+    cct = _xy_to_cct(float(x), float(y))
+    if not np.isfinite(cct):
+        raise ValueError("Cannot estimate finite scene CCT from RAW white balance")
+    return float(np.clip(cct, 1500, 20000))
+
+
 def _rationals(v) -> np.ndarray:
     a = np.asarray(v, np.float64).ravel()
     return a[0::2] / a[1::2] if a.size % 2 == 0 and a.size >= 6 else a
 
 
 def dng_tags(path: str) -> dict:
+    """Read TIFF/EXIF metadata without decoding pixels, including RAW SubIFDs."""
     import tifffile
     out = {}
     with tifffile.TiffFile(path) as tf:
-        for t in tf.pages[0].tags.values():
-            out[t.name] = t.value
-        exif = out.get("ExifTag")
-        if isinstance(exif, dict):
-            out.update(exif)
+        ifds = []
+
+        def visit(pages):
+            for page in pages:
+                tags = {t.name: t.value for t in page.tags.values()}
+                exif = tags.get("ExifTag")
+                if isinstance(exif, dict):
+                    tags.update(exif)
+                ifds.append(tags)
+                if page.pages is not None:
+                    visit(page.pages)
+
+        visit(tf.pages)
+        if not ifds:
+            raise ValueError("RAW file contains no TIFF image directories")
+        out.update(ifds[0])
+        for tags in ifds[1:]:
+            # Root metadata remains authoritative; RAW tags may live in a SubIFD.
+            for name, value in tags.items():
+                out.setdefault(name, value)
+        raw_ifds = [t for t in ifds if int(_num(t.get("PhotometricInterpretation"))) == 32803]
+        if raw_ifds:
+            out["_raw_ifd"] = max(raw_ifds, key=lambda t: _num(t.get("ImageWidth")) * _num(t.get("ImageLength")))
     return out
 
 
@@ -85,7 +127,12 @@ _ILLUM_CCT = {17: 2856.0, 21: 6504.0, 20: 5503.0, 22: 7504.0, 23: 5003.0, 1: 550
 
 
 def _mat(v):
-    return _rationals(v).reshape(3, 3) if v is not None else None
+    if v is None:
+        return None
+    matrix = _rationals(v).reshape(3, 3)
+    if not np.isfinite(matrix).all() or np.linalg.matrix_rank(matrix) != 3:
+        raise ValueError("RAW colour matrix is non-finite or singular")
+    return matrix
 
 
 def dng_color(tags: dict, neutral: np.ndarray):
@@ -103,7 +150,7 @@ def dng_color(tags: dict, neutral: np.ndarray):
         w = np.clip((1 / cct - 1 / t2) / (1 / t1 - 1 / t2), 0, 1) if t1 != t2 else 1.0
         cm = w * cm1 + (1 - w) * cm2
         xyz = np.linalg.solve(cm, neutral)
-        new = _xy_to_cct(xyz[0] / xyz.sum(), xyz[1] / xyz.sum())
+        new = scene_cct_from_xyz(xyz)
         if abs(new - cct) < 1:
             cct = new
             break
@@ -139,24 +186,23 @@ def load_dng(path: str, half: bool = False) -> tuple[np.ndarray, np.ndarray, Raw
     else:
         with rawpy.imread(path) as raw:
             wb = np.array(raw.camera_whitebalance[:3], np.float64)
-        neutral = wb[1] / np.maximum(wb, 1e-6)
+        if wb.shape != (3,) or not np.isfinite(wb).all() or np.any(wb <= 0):
+            raise ValueError("DNG has no valid as-shot white balance")
+        neutral = wb[1] / wb
+    if neutral.shape != (3,) or not np.isfinite(neutral).all() or np.any(neutral <= 0):
+        raise ValueError("DNG has invalid AsShotNeutral")
     info.as_shot_neutral = neutral
     _, info.cct = dng_color(tags, neutral)
 
     xyz2cam = _cm_at(tags, LEGEND_CCT)
-    n50 = xyz2cam @ XYZ_D50
-    n50 = n50 / n50[1]
-    mul = 1.0 / n50
+    mul, cam2srgb = camera_d50_transform(xyz2cam)
     with rawpy.imread(path) as raw:
+        geometry = raw_geometry(raw)
         rgb = raw.postprocess(
             gamma=(1, 1), no_auto_bright=True, output_bps=16, user_wb=[mul[0], mul[1], mul[2], mul[1]],
             output_color=rawpy.ColorSpace.raw, demosaic_algorithm=rawpy.DemosaicAlgorithm.AHD,
             half_size=half, highlight_mode=rawpy.HighlightMode.Clip)
     rgb = rgb.astype(np.float32) / 65535.0
-    # WB'd camera space: camWB = diag(1/n50) cam ; rows normalised so D50 white -> (1,1,1)
-    srgb2cam = np.diag(1.0 / n50) @ xyz2cam @ SRGB_TO_XYZ
-    srgb2cam /= srgb2cam.sum(axis=1, keepdims=True)
-    cam2srgb = np.linalg.inv(srgb2cam)
 
     info.exposure_time = _num(tags.get("ExposureTime"))
     info.fnumber = _num(tags.get("FNumber"))
@@ -166,7 +212,38 @@ def load_dng(path: str, half: bool = False) -> tuple[np.ndarray, np.ndarray, Raw
     info.model = str(tags.get("Model", "")).strip()
     if info.exposure_time > 0 and info.fnumber > 0 and info.iso > 0:
         info.ev100 = float(np.log2(info.fnumber ** 2 / info.exposure_time) - np.log2(info.iso / 100.0))
+    info.extra.update(geometry)
+    info.extra.update(decoded_dimensions=[int(rgb.shape[1]), int(rgb.shape[0])],
+                      cct_source="DNG dual-matrix AsShotNeutral" if "ColorMatrix2" in tags else "DNG single-matrix default 5000 K",
+                      matrix_source="DNG ColorMatrix1/2", orientation=orientation_from_tags(tags))
     return rgb, cam2srgb.astype(np.float32), info
+
+
+def camera_d50_transform(xyz2cam: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Apply the existing locked D50 WB and normalized camera-to-sRGB convention."""
+    xyz2cam = np.asarray(xyz2cam, np.float64)
+    if xyz2cam.shape != (3, 3) or not np.isfinite(xyz2cam).all() or np.linalg.matrix_rank(xyz2cam) != 3:
+        raise ValueError("RAW colour matrix must be a finite nonsingular 3 x 3 XYZ-to-camera matrix")
+    n50 = xyz2cam @ XYZ_D50
+    if not np.isfinite(n50).all() or np.any(n50 <= 0):
+        raise ValueError("RAW colour matrix gives invalid D50 white balance")
+    n50 /= n50[1]
+    srgb2cam = np.diag(1.0 / n50) @ xyz2cam @ SRGB_TO_XYZ
+    row_sums = srgb2cam.sum(axis=1, keepdims=True)
+    if np.any(np.abs(row_sums) < 1e-12):
+        raise ValueError("RAW colour matrix gives invalid RGB normalization")
+    srgb2cam /= row_sums
+    return 1.0 / n50, np.linalg.inv(srgb2cam).astype(np.float32)
+
+
+def raw_geometry(raw) -> dict:
+    """LibRaw active dimensions before orientation, plus the orientation it applies."""
+    sizes = raw.sizes
+    names = ("raw_width", "raw_height", "width", "height", "left_margin", "top_margin", "iwidth", "iheight", "flip")
+    geometry = {name: int(getattr(sizes, name)) for name in names}
+    for name in ("crop_left_margin", "crop_top_margin", "crop_width", "crop_height"):
+        geometry[name] = int(getattr(sizes, name, 0))
+    return geometry
 
 
 def lux_index_from_ev(ev100: float) -> float:
@@ -284,8 +361,15 @@ class FrontEndResult:
 
 def b2y(path: str, lux_index: float | None = None, cct: float | None = None, ev: float = 0.0,
         half: bool = False, camera: str = "main") -> FrontEndResult:
-    tag = CAMERAS[camera][0]
     lin, cam2srgb, info = load_dng(path, half=half)
+    return b2y_from_raw(lin, cam2srgb, info, lux_index=lux_index, cct=cct, ev=ev, camera=camera)
+
+
+def b2y_from_raw(lin: np.ndarray, cam2srgb: np.ndarray, info: RawInfo,
+                 lux_index: float | None = None, cct: float | None = None, ev: float = 0.0,
+                 camera: str = "main") -> FrontEndResult:
+    """Shared M9 front end for decoded DNG and native NEF camera RGB."""
+    tag = CAMERAS[camera][0]
     li = float(lux_index) if lux_index is not None else (lux_index_from_ev(info.ev100) if info.ev100 else 300.0)
     k = float(cct) if cct is not None else info.cct
 

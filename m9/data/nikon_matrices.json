@@ -1,0 +1,2156 @@
+{
+  "schema_version": 1,
+  "source": {
+    "project": "LibRaw",
+    "version": "0.22.1",
+    "tag": "0.22.1",
+    "release_url": "https://github.com/LibRaw/LibRaw/releases/tag/0.22.1",
+    "files": {
+      "src/tables/colordata.cpp": {
+        "url": "https://raw.githubusercontent.com/LibRaw/LibRaw/0.22.1/src/tables/colordata.cpp",
+        "sha256": "621d6a7e1a1904095d27087cf10ac7e935c6a984ec336816b79c273a8eaca768"
+      },
+      "src/metadata/normalize_model.cpp": {
+        "url": "https://raw.githubusercontent.com/LibRaw/LibRaw/0.22.1/src/metadata/normalize_model.cpp",
+        "sha256": "1e12886c679c8941eb4f84e447ba89c7c88c31f3b2a05508fd1510939eb3fdfa"
+      },
+      "src/tables/cameralist.cpp": {
+        "url": "https://raw.githubusercontent.com/LibRaw/LibRaw/0.22.1/src/tables/cameralist.cpp",
+        "sha256": "7db5ef12c6ef5b81a81f344b798701f04beee27b340675911f848b22ec611bd7"
+      }
+    },
+    "recovered_from": {
+      "archive": "rawpy-0.27.1.tar.gz",
+      "url": "https://pypi.org/project/rawpy/0.27.1/#files",
+      "sha256": "3194d64ff690ac945e1a43237edae8a18f1f493751924de1ae2bcef473c0fb79",
+      "path": "rawpy-0.27.1/external/LibRaw"
+    },
+    "license": "CDDL-1.0",
+    "notice": "LibRaw-NOTICE.txt"
+  },
+  "matrix_direction": "XYZ_to_camera",
+  "coefficient_scale": 10000,
+  "black_and_maximum_policy": "Upstream metadata retained for audit only; never applied by this inventory.",
+  "entries": [
+    {
+      "model_prefix": "1 AW1",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        6588,
+        -1305,
+        -693,
+        -3277,
+        10987,
+        2634,
+        -355,
+        2016,
+        5106
+      ],
+      "models": [
+        "1 AW1"
+      ],
+      "source_line": 855
+    },
+    {
+      "model_prefix": "1 J3",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        6588,
+        -1305,
+        -693,
+        -3277,
+        10987,
+        2634,
+        -355,
+        2016,
+        5106
+      ],
+      "models": [
+        "1 J3"
+      ],
+      "source_line": 857
+    },
+    {
+      "model_prefix": "1 J4",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        5958,
+        -1559,
+        -571,
+        -4021,
+        11453,
+        2939,
+        -634,
+        1548,
+        5087
+      ],
+      "models": [
+        "1 J4"
+      ],
+      "source_line": 859
+    },
+    {
+      "model_prefix": "1 J5",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        7520,
+        -2518,
+        -645,
+        -3844,
+        12102,
+        1945,
+        -913,
+        2249,
+        6835
+      ],
+      "models": [
+        "1 J5"
+      ],
+      "source_line": 861
+    },
+    {
+      "model_prefix": "1 S2",
+      "black": -200,
+      "maximum": 0,
+      "coefficients": [
+        6612,
+        -1342,
+        -618,
+        -3338,
+        11055,
+        2623,
+        -174,
+        1792,
+        5075
+      ],
+      "models": [
+        "1 S2"
+      ],
+      "source_line": 863
+    },
+    {
+      "model_prefix": "1 V2",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        6588,
+        -1305,
+        -693,
+        -3277,
+        10987,
+        2634,
+        -355,
+        2016,
+        5106
+      ],
+      "models": [
+        "1 V2"
+      ],
+      "source_line": 865
+    },
+    {
+      "model_prefix": "1 V3",
+      "black": -200,
+      "maximum": 0,
+      "coefficients": [
+        5958,
+        -1559,
+        -571,
+        -4021,
+        11453,
+        2939,
+        -634,
+        1548,
+        5087
+      ],
+      "models": [
+        "1 V3"
+      ],
+      "source_line": 867
+    },
+    {
+      "model_prefix": "1 ",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8994,
+        -2667,
+        -865,
+        -4594,
+        12324,
+        2552,
+        -699,
+        1786,
+        6260
+      ],
+      "models": [
+        "1 J1",
+        "1 J2",
+        "1 S1",
+        "1 V1"
+      ],
+      "source_line": 869
+    },
+    {
+      "model_prefix": "COOLPIX 2100",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        13142,
+        -4152,
+        -1596,
+        -4655,
+        12374,
+        2282,
+        -1769,
+        2696,
+        6711
+      ],
+      "models": [
+        "Coolpix 2100",
+        "COOLPIX 2100",
+        "E2100"
+      ],
+      "source_line": 872
+    },
+    {
+      "model_prefix": "COOLPIX 2500",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        -5547,
+        11762,
+        2189,
+        5814,
+        -558,
+        3342,
+        -4924,
+        9840,
+        5949,
+        688,
+        9083,
+        96
+      ],
+      "models": [
+        "Coolpix 2500",
+        "COOLPIX 2500",
+        "E2500"
+      ],
+      "source_line": 874
+    },
+    {
+      "model_prefix": "COOLPIX 3200",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        9846,
+        -2085,
+        -1019,
+        -3278,
+        11109,
+        2170,
+        -774,
+        2134,
+        5745
+      ],
+      "models": [
+        "Coolpix 3200",
+        "COOLPIX 3200",
+        "E3200"
+      ],
+      "source_line": 876
+    },
+    {
+      "model_prefix": "COOLPIX 4300",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        11280,
+        -3564,
+        -1370,
+        -4655,
+        12374,
+        2282,
+        -1423,
+        2168,
+        5396
+      ],
+      "models": [
+        "Coolpix 4300",
+        "COOLPIX 4300",
+        "E4300"
+      ],
+      "source_line": 878
+    },
+    {
+      "model_prefix": "COOLPIX 4500",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        -5547,
+        11762,
+        2189,
+        5814,
+        -558,
+        3342,
+        -4924,
+        9840,
+        5949,
+        688,
+        9083,
+        96
+      ],
+      "models": [
+        "Coolpix 4500",
+        "COOLPIX 4500",
+        "E4500"
+      ],
+      "source_line": 880
+    },
+    {
+      "model_prefix": "COOLPIX 5000",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        -6678,
+        12805,
+        2248,
+        5725,
+        -499,
+        3375,
+        -5903,
+        10713,
+        6034,
+        -270,
+        9976,
+        134
+      ],
+      "models": [
+        "Coolpix 5000",
+        "COOLPIX 5000",
+        "E5000"
+      ],
+      "source_line": 882
+    },
+    {
+      "model_prefix": "COOLPIX 5400",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        9349,
+        -2988,
+        -1001,
+        -7918,
+        15766,
+        2266,
+        -2097,
+        2680,
+        6839
+      ],
+      "models": [
+        "Coolpix 5400",
+        "COOLPIX 5400",
+        "E5400"
+      ],
+      "source_line": 884
+    },
+    {
+      "model_prefix": "COOLPIX 5700",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        -6475,
+        12496,
+        2428,
+        5409,
+        -16,
+        3180,
+        -5965,
+        10912,
+        5866,
+        -177,
+        9918,
+        248
+      ],
+      "models": [
+        "Coolpix 5700",
+        "COOLPIX 5700",
+        "E5700"
+      ],
+      "source_line": 886
+    },
+    {
+      "model_prefix": "COOLPIX 8400",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        7842,
+        -2320,
+        -992,
+        -8154,
+        15718,
+        2599,
+        -1098,
+        1342,
+        7560
+      ],
+      "models": [
+        "Coolpix 8400",
+        "COOLPIX 8400",
+        "E8400"
+      ],
+      "source_line": 888
+    },
+    {
+      "model_prefix": "COOLPIX 8700",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8489,
+        -2583,
+        -1036,
+        -8051,
+        15583,
+        2643,
+        -1307,
+        1407,
+        7354
+      ],
+      "models": [
+        "Coolpix 8700",
+        "COOLPIX 8700",
+        "E8700"
+      ],
+      "source_line": 890
+    },
+    {
+      "model_prefix": "COOLPIX 8800",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        7971,
+        -2314,
+        -913,
+        -8451,
+        15762,
+        2894,
+        -1442,
+        1520,
+        7610
+      ],
+      "models": [
+        "Coolpix 8800",
+        "COOLPIX 8800",
+        "E8800"
+      ],
+      "source_line": 892
+    },
+    {
+      "model_prefix": "COOLPIX 700",
+      "black": 0,
+      "maximum": 989,
+      "coefficients": [
+        -3746,
+        10611,
+        1665,
+        9621,
+        -1734,
+        2114,
+        -2389,
+        7082,
+        3064,
+        3406,
+        6116,
+        -244
+      ],
+      "models": [
+        "Coolpix 700",
+        "COOLPIX 700",
+        "E700"
+      ],
+      "source_line": 895
+    },
+    {
+      "model_prefix": "COOLPIX 800",
+      "black": 0,
+      "maximum": 989,
+      "coefficients": [
+        -3746,
+        10611,
+        1665,
+        9621,
+        -1734,
+        2114,
+        -2389,
+        7082,
+        3064,
+        3406,
+        6116,
+        -244
+      ],
+      "models": [
+        "Coolpix 800",
+        "COOLPIX 800",
+        "E800"
+      ],
+      "source_line": 897
+    },
+    {
+      "model_prefix": "COOLPIX 950",
+      "black": 0,
+      "maximum": 989,
+      "coefficients": [
+        -3746,
+        10611,
+        1665,
+        9621,
+        -1734,
+        2114,
+        -2389,
+        7082,
+        3064,
+        3406,
+        6116,
+        -244
+      ],
+      "models": [
+        "Coolpix 950",
+        "COOLPIX 950",
+        "E950"
+      ],
+      "source_line": 899
+    },
+    {
+      "model_prefix": "COOLPIX 995",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        -5547,
+        11762,
+        2189,
+        5814,
+        -558,
+        3342,
+        -4924,
+        9840,
+        5949,
+        688,
+        9083,
+        96
+      ],
+      "models": [
+        "Coolpix 995",
+        "COOLPIX 995",
+        "E995"
+      ],
+      "source_line": 901
+    },
+    {
+      "model_prefix": "COOLPIX A1000",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        10601,
+        -3487,
+        -1127,
+        -2931,
+        11443,
+        1676,
+        -587,
+        1740,
+        5278
+      ],
+      "models": [
+        "Coolpix A1000",
+        "COOLPIX A1000"
+      ],
+      "source_line": 904
+    },
+    {
+      "model_prefix": "COOLPIX B700",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        14387,
+        -6014,
+        -1299,
+        -1357,
+        9975,
+        1616,
+        467,
+        1047,
+        4744
+      ],
+      "models": [
+        "Coolpix B700",
+        "COOLPIX B700"
+      ],
+      "source_line": 906
+    },
+    {
+      "model_prefix": "COOLPIX A",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8198,
+        -2239,
+        -724,
+        -4871,
+        12389,
+        2798,
+        -1043,
+        2050,
+        7181
+      ],
+      "models": [
+        "Coolpix A",
+        "COOLPIX A"
+      ],
+      "source_line": 908
+    },
+    {
+      "model_prefix": "COOLPIX P1000",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        14294,
+        -6116,
+        -1333,
+        -1628,
+        10219,
+        1637,
+        -14,
+        1158,
+        5022
+      ],
+      "models": [
+        "Coolpix P1000",
+        "COOLPIX P1000"
+      ],
+      "source_line": 910
+    },
+    {
+      "model_prefix": "COOLPIX P6000",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        9698,
+        -3367,
+        -914,
+        -4706,
+        12584,
+        2368,
+        -837,
+        968,
+        5801
+      ],
+      "models": [
+        "Coolpix P6000",
+        "COOLPIX P6000"
+      ],
+      "source_line": 912
+    },
+    {
+      "model_prefix": "COOLPIX P7000",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        11432,
+        -3679,
+        -1111,
+        -3169,
+        11239,
+        2202,
+        -791,
+        1380,
+        4455
+      ],
+      "models": [
+        "Coolpix P7000",
+        "COOLPIX P7000"
+      ],
+      "source_line": 914
+    },
+    {
+      "model_prefix": "COOLPIX P7100",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        11053,
+        -4269,
+        -1024,
+        -1976,
+        10182,
+        2088,
+        -526,
+        1263,
+        4469
+      ],
+      "models": [
+        "Coolpix P7100",
+        "COOLPIX P7100"
+      ],
+      "source_line": 916
+    },
+    {
+      "model_prefix": "COOLPIX P7700",
+      "black": -3200,
+      "maximum": 0,
+      "coefficients": [
+        10321,
+        -3920,
+        -931,
+        -2750,
+        11146,
+        1824,
+        -442,
+        1545,
+        5539
+      ],
+      "models": [
+        "COOLPIX Deneb",
+        "Coolpix P7700",
+        "COOLPIX P7700"
+      ],
+      "source_line": 918
+    },
+    {
+      "model_prefix": "COOLPIX P7800",
+      "black": -3200,
+      "maximum": 0,
+      "coefficients": [
+        10321,
+        -3920,
+        -931,
+        -2750,
+        11146,
+        1824,
+        -442,
+        1545,
+        5539
+      ],
+      "models": [
+        "COOLPIX Kalon",
+        "Coolpix P7800",
+        "COOLPIX P7800"
+      ],
+      "source_line": 920
+    },
+    {
+      "model_prefix": "COOLPIX P330",
+      "black": -200,
+      "maximum": 0,
+      "coefficients": [
+        10321,
+        -3920,
+        -931,
+        -2750,
+        11146,
+        1824,
+        -442,
+        1545,
+        5539
+      ],
+      "models": [
+        "Coolpix P330",
+        "COOLPIX P330"
+      ],
+      "source_line": 922
+    },
+    {
+      "model_prefix": "COOLPIX P340",
+      "black": -200,
+      "maximum": 0,
+      "coefficients": [
+        10321,
+        -3920,
+        -931,
+        -2750,
+        11146,
+        1824,
+        -442,
+        1545,
+        5539
+      ],
+      "models": [
+        "Coolpix P340",
+        "COOLPIX P340"
+      ],
+      "source_line": 924
+    },
+    {
+      "model_prefix": "Coolpix P950",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        13307,
+        -5641,
+        -1290,
+        -2048,
+        10581,
+        1689,
+        -64,
+        1222,
+        5176
+      ],
+      "models": [
+        "Coolpix P950"
+      ],
+      "source_line": 926
+    },
+    {
+      "model_prefix": "D3000",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8736,
+        -2458,
+        -935,
+        -9075,
+        16894,
+        2251,
+        -1354,
+        1242,
+        8263
+      ],
+      "models": [
+        "D3000"
+      ],
+      "source_line": 929
+    },
+    {
+      "model_prefix": "D3100",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        7911,
+        -2167,
+        -813,
+        -5327,
+        13150,
+        2408,
+        -1288,
+        2483,
+        7968
+      ],
+      "models": [
+        "D3100"
+      ],
+      "source_line": 931
+    },
+    {
+      "model_prefix": "D3200",
+      "black": 0,
+      "maximum": 4025,
+      "coefficients": [
+        7013,
+        -1408,
+        -635,
+        -5268,
+        12902,
+        2640,
+        -1470,
+        2801,
+        7379
+      ],
+      "models": [
+        "D3200"
+      ],
+      "source_line": 933
+    },
+    {
+      "model_prefix": "D3300",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        6988,
+        -1384,
+        -714,
+        -5631,
+        13410,
+        2447,
+        -1485,
+        2204,
+        7318
+      ],
+      "models": [
+        "D3300"
+      ],
+      "source_line": 935
+    },
+    {
+      "model_prefix": "D3400",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        6988,
+        -1384,
+        -714,
+        -5631,
+        13410,
+        2447,
+        -1485,
+        2204,
+        7318
+      ],
+      "models": [
+        "D3400"
+      ],
+      "source_line": 937
+    },
+    {
+      "model_prefix": "D3500",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8821,
+        -2938,
+        -785,
+        -4178,
+        12142,
+        2287,
+        -824,
+        1651,
+        6860
+      ],
+      "models": [
+        "D3500"
+      ],
+      "source_line": 939
+    },
+    {
+      "model_prefix": "D5000",
+      "black": 0,
+      "maximum": 3840,
+      "coefficients": [
+        7309,
+        -1403,
+        -519,
+        -8474,
+        16008,
+        2622,
+        -2433,
+        2826,
+        8064
+      ],
+      "models": [
+        "D5000"
+      ],
+      "source_line": 941
+    },
+    {
+      "model_prefix": "D5100",
+      "black": 0,
+      "maximum": 15846,
+      "coefficients": [
+        8198,
+        -2239,
+        -724,
+        -4871,
+        12389,
+        2798,
+        -1043,
+        2050,
+        7181
+      ],
+      "models": [
+        "D5100"
+      ],
+      "source_line": 943
+    },
+    {
+      "model_prefix": "D5200",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8322,
+        -3112,
+        -1047,
+        -6367,
+        14342,
+        2179,
+        -988,
+        1638,
+        6394
+      ],
+      "models": [
+        "D5200"
+      ],
+      "source_line": 945
+    },
+    {
+      "model_prefix": "D5300",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        6988,
+        -1384,
+        -714,
+        -5631,
+        13410,
+        2447,
+        -1485,
+        2204,
+        7318
+      ],
+      "models": [
+        "D5300"
+      ],
+      "source_line": 947
+    },
+    {
+      "model_prefix": "D5500",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8821,
+        -2938,
+        -785,
+        -4178,
+        12142,
+        2287,
+        -824,
+        1651,
+        6860
+      ],
+      "models": [
+        "D5500"
+      ],
+      "source_line": 949
+    },
+    {
+      "model_prefix": "D5600",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8821,
+        -2938,
+        -785,
+        -4178,
+        12142,
+        2287,
+        -824,
+        1651,
+        6860
+      ],
+      "models": [
+        "D5600"
+      ],
+      "source_line": 951
+    },
+    {
+      "model_prefix": "D7000",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8198,
+        -2239,
+        -724,
+        -4871,
+        12389,
+        2798,
+        -1043,
+        2050,
+        7181
+      ],
+      "models": [
+        "D7000"
+      ],
+      "source_line": 953
+    },
+    {
+      "model_prefix": "D7100",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8322,
+        -3112,
+        -1047,
+        -6367,
+        14342,
+        2179,
+        -988,
+        1638,
+        6394
+      ],
+      "models": [
+        "D7100"
+      ],
+      "source_line": 955
+    },
+    {
+      "model_prefix": "D7200",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8322,
+        -3112,
+        -1047,
+        -6367,
+        14342,
+        2179,
+        -988,
+        1638,
+        6394
+      ],
+      "models": [
+        "D7200"
+      ],
+      "source_line": 957
+    },
+    {
+      "model_prefix": "D7500",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8813,
+        -3210,
+        -1036,
+        -4703,
+        12868,
+        2021,
+        -1054,
+        1940,
+        6129
+      ],
+      "models": [
+        "D7500"
+      ],
+      "source_line": 959
+    },
+    {
+      "model_prefix": "D100",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        5902,
+        -933,
+        -782,
+        -8983,
+        16719,
+        2354,
+        -1402,
+        1455,
+        6464
+      ],
+      "models": [
+        "D100"
+      ],
+      "source_line": 962
+    },
+    {
+      "model_prefix": "D200",
+      "black": 0,
+      "maximum": 4028,
+      "coefficients": [
+        8367,
+        -2248,
+        -763,
+        -8758,
+        16447,
+        2422,
+        -1527,
+        1550,
+        8053
+      ],
+      "models": [
+        "D200"
+      ],
+      "source_line": 964
+    },
+    {
+      "model_prefix": "D300",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        9030,
+        -1992,
+        -715,
+        -8465,
+        16302,
+        2255,
+        -2689,
+        3217,
+        8069
+      ],
+      "models": [
+        "D300",
+        "D300s"
+      ],
+      "source_line": 966
+    },
+    {
+      "model_prefix": "D500",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8813,
+        -3210,
+        -1036,
+        -4703,
+        12868,
+        2021,
+        -1054,
+        1940,
+        6129
+      ],
+      "models": [
+        "D500"
+      ],
+      "source_line": 968
+    },
+    {
+      "model_prefix": "D600",
+      "black": 0,
+      "maximum": 15879,
+      "coefficients": [
+        8178,
+        -2245,
+        -609,
+        -4857,
+        12394,
+        2776,
+        -1207,
+        2086,
+        7298
+      ],
+      "models": [
+        "D600"
+      ],
+      "source_line": 970
+    },
+    {
+      "model_prefix": "D610",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8178,
+        -2245,
+        -609,
+        -4857,
+        12394,
+        2776,
+        -1207,
+        2086,
+        7298
+      ],
+      "models": [
+        "D610"
+      ],
+      "source_line": 972
+    },
+    {
+      "model_prefix": "D700",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8139,
+        -2171,
+        -663,
+        -8747,
+        16541,
+        2295,
+        -1925,
+        2008,
+        8093
+      ],
+      "models": [
+        "D700"
+      ],
+      "source_line": 974
+    },
+    {
+      "model_prefix": "D750",
+      "black": -600,
+      "maximum": 0,
+      "coefficients": [
+        9020,
+        -2890,
+        -715,
+        -4535,
+        12436,
+        2348,
+        -934,
+        1919,
+        7086
+      ],
+      "models": [
+        "D750"
+      ],
+      "source_line": 976
+    },
+    {
+      "model_prefix": "D780",
+      "black": -600,
+      "maximum": 0,
+      "coefficients": [
+        9943,
+        -3269,
+        -839,
+        -5323,
+        13269,
+        2259,
+        -1198,
+        2083,
+        7557
+      ],
+      "models": [
+        "D780"
+      ],
+      "source_line": 978
+    },
+    {
+      "model_prefix": "D800",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        7866,
+        -2108,
+        -555,
+        -4869,
+        12483,
+        2681,
+        -1176,
+        2069,
+        7501
+      ],
+      "models": [
+        "D800",
+        "D800E"
+      ],
+      "source_line": 980
+    },
+    {
+      "model_prefix": "D810A",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        11973,
+        -5685,
+        -888,
+        -1965,
+        10326,
+        1901,
+        -115,
+        1123,
+        7169
+      ],
+      "models": [
+        "D810A"
+      ],
+      "source_line": 982
+    },
+    {
+      "model_prefix": "D810",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        9369,
+        -3195,
+        -791,
+        -4488,
+        12430,
+        2301,
+        -893,
+        1796,
+        6872
+      ],
+      "models": [
+        "D810"
+      ],
+      "source_line": 984
+    },
+    {
+      "model_prefix": "D850",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        10405,
+        -3755,
+        -1270,
+        -5461,
+        13787,
+        1793,
+        -1040,
+        2015,
+        6785
+      ],
+      "models": [
+        "D850"
+      ],
+      "source_line": 986
+    },
+    {
+      "model_prefix": "D40X",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8819,
+        -2543,
+        -911,
+        -9025,
+        16928,
+        2151,
+        -1329,
+        1213,
+        8449
+      ],
+      "models": [
+        "D40X"
+      ],
+      "source_line": 989
+    },
+    {
+      "model_prefix": "D40",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        6992,
+        -1668,
+        -806,
+        -8138,
+        15748,
+        2543,
+        -874,
+        850,
+        7897
+      ],
+      "models": [
+        "D40"
+      ],
+      "source_line": 991
+    },
+    {
+      "model_prefix": "D50",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        7732,
+        -2422,
+        -789,
+        -8238,
+        15884,
+        2498,
+        -859,
+        783,
+        7330
+      ],
+      "models": [
+        "D50"
+      ],
+      "source_line": 993
+    },
+    {
+      "model_prefix": "D60",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8736,
+        -2458,
+        -935,
+        -9075,
+        16894,
+        2251,
+        -1354,
+        1242,
+        8263
+      ],
+      "models": [
+        "D60"
+      ],
+      "source_line": 995
+    },
+    {
+      "model_prefix": "D70",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        7732,
+        -2422,
+        -789,
+        -8238,
+        15884,
+        2498,
+        -859,
+        783,
+        7330
+      ],
+      "models": [
+        "D70",
+        "D70s"
+      ],
+      "source_line": 997
+    },
+    {
+      "model_prefix": "D80",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8629,
+        -2410,
+        -883,
+        -9055,
+        16940,
+        2171,
+        -1490,
+        1363,
+        8520
+      ],
+      "models": [
+        "D80"
+      ],
+      "source_line": 999
+    },
+    {
+      "model_prefix": "D90",
+      "black": 0,
+      "maximum": 3840,
+      "coefficients": [
+        7309,
+        -1403,
+        -519,
+        -8474,
+        16008,
+        2622,
+        -2434,
+        2826,
+        8064
+      ],
+      "models": [
+        "D90"
+      ],
+      "source_line": 1001
+    },
+    {
+      "model_prefix": "D1H",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        7659,
+        -2238,
+        -935,
+        -8942,
+        16969,
+        2004,
+        -2701,
+        3051,
+        8690
+      ],
+      "models": [
+        "D1H"
+      ],
+      "source_line": 1004
+    },
+    {
+      "model_prefix": "D1X",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        7702,
+        -2245,
+        -975,
+        -9114,
+        17242,
+        1875,
+        -2679,
+        3055,
+        8521
+      ],
+      "models": [
+        "D1X"
+      ],
+      "source_line": 1006
+    },
+    {
+      "model_prefix": "D1",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        7637,
+        -2199,
+        -974,
+        -9109,
+        17099,
+        2043,
+        -2822,
+        3306,
+        8372
+      ],
+      "models": [
+        "D1"
+      ],
+      "source_line": 1008
+    },
+    {
+      "model_prefix": "D2H",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        5733,
+        -911,
+        -629,
+        -7967,
+        15987,
+        2055,
+        -3050,
+        4013,
+        7048
+      ],
+      "models": [
+        "D2H",
+        "D2Hs"
+      ],
+      "source_line": 1011
+    },
+    {
+      "model_prefix": "D2X",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        10231,
+        -2768,
+        -1254,
+        -8302,
+        15900,
+        2551,
+        -797,
+        681,
+        7148
+      ],
+      "models": [
+        "D2X",
+        "D2Xs"
+      ],
+      "source_line": 1013
+    },
+    {
+      "model_prefix": "D3S",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8828,
+        -2406,
+        -694,
+        -4874,
+        12603,
+        2541,
+        -660,
+        1509,
+        7587
+      ],
+      "models": [
+        "D3s",
+        "D3S"
+      ],
+      "source_line": 1015
+    },
+    {
+      "model_prefix": "D3X",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        7171,
+        -1986,
+        -648,
+        -8085,
+        15555,
+        2718,
+        -2170,
+        2512,
+        7457
+      ],
+      "models": [
+        "D3X"
+      ],
+      "source_line": 1017
+    },
+    {
+      "model_prefix": "D3",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8139,
+        -2171,
+        -663,
+        -8747,
+        16541,
+        2295,
+        -1925,
+        2008,
+        8093
+      ],
+      "models": [
+        "D3"
+      ],
+      "source_line": 1019
+    },
+    {
+      "model_prefix": "D4",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8598,
+        -2848,
+        -857,
+        -5618,
+        13606,
+        2195,
+        -1002,
+        1773,
+        7137
+      ],
+      "models": [
+        "D4",
+        "D4s"
+      ],
+      "source_line": 1021
+    },
+    {
+      "model_prefix": "D5",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        9200,
+        -3522,
+        -992,
+        -5755,
+        13803,
+        2117,
+        -753,
+        1486,
+        6338
+      ],
+      "models": [
+        "D5"
+      ],
+      "source_line": 1023
+    },
+    {
+      "model_prefix": "D6",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        9028,
+        -3423,
+        -1035,
+        -6321,
+        14265,
+        2217,
+        -1013,
+        1683,
+        6928
+      ],
+      "models": [
+        "D6"
+      ],
+      "source_line": 1025
+    },
+    {
+      "model_prefix": "Df",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8598,
+        -2848,
+        -857,
+        -5618,
+        13606,
+        2195,
+        -1002,
+        1773,
+        7137
+      ],
+      "models": [
+        "Df"
+      ],
+      "source_line": 1027
+    },
+    {
+      "model_prefix": "Z 30",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        10339,
+        -3822,
+        -890,
+        -4183,
+        12023,
+        2436,
+        -671,
+        1638,
+        7049
+      ],
+      "models": [
+        "Z 30"
+      ],
+      "source_line": 1030
+    },
+    {
+      "model_prefix": "Z 50",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        11640,
+        -4829,
+        -1079,
+        -5107,
+        13006,
+        2325,
+        -972,
+        1711,
+        7380
+      ],
+      "models": [
+        "Z 50"
+      ],
+      "source_line": 1032
+    },
+    {
+      "model_prefix": "Z 5",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        8695,
+        -2558,
+        -648,
+        -5015,
+        12711,
+        2575,
+        -1279,
+        2215,
+        7514
+      ],
+      "models": [
+        "Z 5"
+      ],
+      "source_line": 1034
+    },
+    {
+      "model_prefix": "Z6_3",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        11206,
+        -4286,
+        -941,
+        -4879,
+        12847,
+        2251,
+        -745,
+        1654,
+        7374
+      ],
+      "models": [
+        "Z 6 III",
+        "Z6_3"
+      ],
+      "source_line": 1036
+    },
+    {
+      "model_prefix": "Z 6",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        9943,
+        -3269,
+        -839,
+        -5323,
+        13269,
+        2259,
+        -1198,
+        2083,
+        7557
+      ],
+      "models": [
+        "Z 6",
+        "Z 6 II",
+        "Z 6_2"
+      ],
+      "source_line": 1038
+    },
+    {
+      "model_prefix": "Z 7",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        13705,
+        -6004,
+        -1400,
+        -5464,
+        13568,
+        2062,
+        -940,
+        1706,
+        7618
+      ],
+      "models": [
+        "Z 7",
+        "Z 7 II",
+        "Z 7_2"
+      ],
+      "source_line": 1040
+    },
+    {
+      "model_prefix": "Z 8",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        11423,
+        -4564,
+        -1123,
+        -4816,
+        12895,
+        2119,
+        -210,
+        1061,
+        7282
+      ],
+      "models": [
+        "Z 8"
+      ],
+      "source_line": 1042
+    },
+    {
+      "model_prefix": "Z 9",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        13389,
+        -6049,
+        -1441,
+        -4544,
+        12757,
+        1969,
+        229,
+        498,
+        7390
+      ],
+      "models": [
+        "Z 9"
+      ],
+      "source_line": 1044
+    },
+    {
+      "model_prefix": "Z fc",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        11640,
+        -4829,
+        -1079,
+        -5107,
+        13006,
+        2325,
+        -972,
+        1711,
+        7380
+      ],
+      "models": [
+        "Z fc"
+      ],
+      "source_line": 1046
+    },
+    {
+      "model_prefix": "Z f",
+      "black": 0,
+      "maximum": 0,
+      "coefficients": [
+        11607,
+        -4491,
+        -977,
+        -4522,
+        12460,
+        2304,
+        -458,
+        1519,
+        7616
+      ],
+      "models": [
+        "Z f"
+      ],
+      "source_line": 1049
+    }
+  ],
+  "additional_upstream_matrices": [
+    {
+      "source_function": "LibRaw::simple_coeff",
+      "source_index": 3,
+      "source_file": "src/tables/colordata.cpp",
+      "source_line": 1913,
+      "models": [
+        "COOLPIX 880",
+        "E880",
+        "COOLPIX 900",
+        "E900",
+        "COOLPIX 990",
+        "E990"
+      ],
+      "matrix_direction": "camera_channels_to_libraw_rgb_cam",
+      "matrix_shape": [
+        3,
+        4
+      ],
+      "coefficient_scale": 1,
+      "source_coefficient_type": "C++ float",
+      "coefficients": [
+        -1.93628,
+        1.800443,
+        -1.448486,
+        2.584324,
+        1.405365,
+        -0.524955,
+        -0.28909,
+        0.40868,
+        -1.204965,
+        1.082304,
+        2.941367,
+        -1.818705
+      ],
+      "runtime_policy": "Audit only; never used as an XYZ-to-camera matrix or by native NEF fallback."
+    }
+  ],
+  "coverage": {
+    "matrix_entries": 93,
+    "three_channel_entries": 85,
+    "four_channel_entries": 8,
+    "camera_inventory_models": [
+      "1 AW1",
+      "1 J1",
+      "1 J2",
+      "1 J3",
+      "1 J4",
+      "1 J5",
+      "1 S1",
+      "1 S2",
+      "1 V1",
+      "1 V2",
+      "1 V3",
+      "Coolpix 2100",
+      "Coolpix 2500",
+      "Coolpix 3200",
+      "Coolpix 3700",
+      "Coolpix 4300",
+      "Coolpix 4500",
+      "Coolpix 5000",
+      "Coolpix 5400",
+      "Coolpix 5700",
+      "Coolpix 700",
+      "Coolpix 800",
+      "Coolpix 8400",
+      "Coolpix 8700",
+      "Coolpix 880",
+      "Coolpix 8800",
+      "Coolpix 900",
+      "Coolpix 950",
+      "Coolpix 990",
+      "Coolpix 995",
+      "Coolpix A",
+      "Coolpix A1000",
+      "Coolpix B700",
+      "Coolpix P1000",
+      "Coolpix P330",
+      "Coolpix P340",
+      "Coolpix P6000",
+      "Coolpix P7000",
+      "Coolpix P7100",
+      "Coolpix P7700",
+      "Coolpix P7800",
+      "Coolpix P950",
+      "Coolpix S6",
+      "Coolscan NEF",
+      "D1",
+      "D100",
+      "D1H",
+      "D1X",
+      "D200",
+      "D2H",
+      "D2Hs",
+      "D2X",
+      "D2Xs",
+      "D3",
+      "D300",
+      "D3000",
+      "D300s",
+      "D3100",
+      "D3200",
+      "D3300",
+      "D3400",
+      "D3500",
+      "D3s",
+      "D3X",
+      "D4",
+      "D40",
+      "D40X",
+      "D4s",
+      "D5",
+      "D50",
+      "D500",
+      "D5000",
+      "D5100",
+      "D5200",
+      "D5300",
+      "D5500",
+      "D5600",
+      "D6",
+      "D60",
+      "D600",
+      "D610",
+      "D70",
+      "D700",
+      "D7000",
+      "D70s",
+      "D7100",
+      "D7200",
+      "D750",
+      "D7500",
+      "D780",
+      "D80",
+      "D800",
+      "D800E",
+      "D810",
+      "D810A",
+      "D850",
+      "D90",
+      "Df",
+      "Z 30",
+      "Z 5",
+      "Z 50",
+      "Z 6",
+      "Z 6 II",
+      "Z 6 III",
+      "Z 7",
+      "Z 7 II",
+      "Z 8",
+      "Z 9",
+      "Z f",
+      "Z fc"
+    ],
+    "inventory_without_adobe_coefficients": [
+      "Coolpix 3700",
+      "Coolpix 880",
+      "Coolpix 900",
+      "Coolpix 990",
+      "Coolpix S6",
+      "Coolscan NEF"
+    ],
+    "inventory_without_either_matrix_table": [
+      "Coolpix 3700",
+      "Coolpix S6",
+      "Coolscan NEF"
+    ],
+    "aliases_without_matrix": [
+      "COOLPIX 3700",
+      "COOLPIX 880",
+      "COOLPIX 900",
+      "COOLPIX 990",
+      "E3700",
+      "E880",
+      "E900",
+      "E990"
+    ]
+  }
+}

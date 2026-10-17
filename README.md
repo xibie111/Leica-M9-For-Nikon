@@ -1,5 +1,12 @@
 # OffLineM9 — 小米 17 Ultra「徕卡一瞬 · M9」离线 RAW 渲染
 
+本项目基于 [benbaobaoshigemi/OffLineM9](https://github.com/benbaobaoshigemi/OffLineM9)，增加 Nikon NEF 电脑本地处理、图形界面和批量队列支持。保留上游逆向资料与原有处理管线。
+
+Nikon Z7 II / Z6 III NEF 的电脑本地双路入口：双击 `launch_nef_gui.cmd` 使用批量队列，或运行单张命令
+`python -m m9.nef INPUT.NEF --method native --output-dir DIR`。
+自动转 DNG 使用 `--method dng`；CLI/API 未指定 method 时默认仍为 dng。
+独立环境、全尺寸处理及验证边界见 [NEF 使用说明](docs/NEF_GUIDE.md)。
+
 ```
 python -m m9.render input.dng -o out.jpg [--camera main|tele] [--zoom Z] [--ev 0] [--lux-index N] [--cct K] [--half]
 ```
@@ -14,7 +21,7 @@ python -m m9.render input.dng -o out.jpg [--camera main|tele] [--zoom Z] [--ev 0
 - 三颗共有、两版相同：AWB 锁定、StyleTrans、LeicaFilter。超广角未做。
 真值来源：17U ROM（OS3.0.308）。详细逆向记录见 `M9-style-analysis.md`、`FINDINGS.md`。
 
-## 仓库结构（私有）
+## 仓库结构
 | 目录 | 内容 |
 |---|---|
 | `m9/` | 离线渲染器：前端（AE/AWB/IPE/TMC）、StyleTrans（PyTorch 后端 + QNN 模拟器后端）、LeicaFilter、GainMap、Ultra HDR 写入 |

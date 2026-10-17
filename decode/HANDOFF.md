@@ -85,7 +85,7 @@ RAW10 → mialgoanchor → MFNR → B2Y → FormatConvertor → AllInOne(RAW16�
 - `re/styletrans/prepare_syms.txt`：`libQnnHtpPrepare.so` 反修饰后的符号（地址 大小 名字）。
 - `emu/`：qemu + 17U bionic sysroot（`tools/mk_sysroot.sh`，`tools/qrun.sh <bin>`）。`emu/src/qnn_min.h` 为自写 QNN 头（函数表顺序、`sizeof(Qnn_Tensor_t)=0x90` 已核实）。
   `gen_conv` 想在 qemu 里用 17U `libQnnHtp.so` 生成参照图，但后端会探测 SoC 并连接 FastRPC → 失败；改走静态读 Prepare 源码路线，此路暂缓。
-- Python：`C:\Users\zhang\miniconda3\python.exe`（numpy/cv2/rawpy/lief/capstone/pyelftools/tifffile/torch+CUDA）。
+- Python：`C:\Path\To\Python\python.exe`（numpy/cv2/rawpy/lief/capstone/pyelftools/tifffile/torch+CUDA）。
 - WSL Ubuntu-24.04：erofs-utils、qemu-user-static、llvm（Hexagon 后端可用于反汇编 `vendor/lib/rfsa/adsp/libQnnHtpV81*.so`）。
 - 重建删除的分区：`python tools/superx.py <super.img> extract product_a rom/product_a.img`，再在 WSL 里跑 `fsck.erofs --extract`。
 
@@ -101,7 +101,7 @@ RAW10 → mialgoanchor → MFNR → B2Y → FormatConvertor → AllInOne(RAW16�
 
 ## 8. 记忆文件
 
-`C:\Users\zhang\.claude\projects\F--OffLineM9\memory\`：项目目标、无样张、禁蒸馏/手机仅作钥匙、及时清理。
+`<LOCAL_PROJECT_MEMORY>`：项目目标、无样张、禁蒸馏/手机仅作钥匙、及时清理。
 
 ## 9. 2026-10-09 续：乘数公式已解（§7 第1步完成）
 
