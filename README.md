@@ -1,6 +1,6 @@
-# OffLineM9 — 小米 17 Ultra「徕卡一瞬 · M9」离线 RAW 渲染
+# OffLineM9-NEF — Nikon RAW 电脑本地处理
 
-本项目基于 [benbaobaoshigemi/OffLineM9](https://github.com/benbaobaoshigemi/OffLineM9)，增加 Nikon NEF 电脑本地处理、图形界面和批量队列支持。保留上游逆向资料与原有处理管线。
+本项目独立维护 Nikon NEF 电脑本地处理、全尺寸输出、图形界面和批量队列。模型来源：StyleTrans low/high/colorfix 权重、原有 M9 渲染管线与相关逆向资料来自 [benbaobaoshigemi/OffLineM9](https://github.com/benbaobaoshigemi/OffLineM9)，其模型与调校数据还原自小米 17 Ultra「徕卡一瞬 · M9」。
 
 Nikon Z7 II / Z6 III NEF 的电脑本地双路入口：双击 `launch_nef_gui.cmd` 使用批量队列，或运行单张命令
 `python -m m9.nef INPUT.NEF --method native --output-dir DIR`。
