@@ -35,8 +35,10 @@ def pipeline(tmp_path, monkeypatch):
     monkeypatch.setattr(nef, "b2y_from_raw", Mock(side_effect=lambda *args, **kw: SimpleNamespace(
         rgb=raw, lin=raw, info=info, cct=5500, lux_index=200, ae=ae)))
     st = Mock(side_effect=lambda image, *args, **kwargs: image)
-    st.be = SimpleNamespace(wdir=str(weights))
-    monkeypatch.setattr(nef.styletrans, "load", Mock(return_value=st))
+    def load(**kwargs):
+        st.be = SimpleNamespace(wdir=str(weights), nets={})
+        return st
+    monkeypatch.setattr(nef.styletrans, "load", Mock(side_effect=load))
     monkeypatch.setattr(nef, "LeicaFilter", Mock(return_value=Mock(side_effect=lambda image, **kw: image)))
     return source, tmp_path / "输出 成片", decode, st
 
@@ -319,3 +321,80 @@ def test_bounded_jpeg_encoding_matches_existing_encoder():
     from m9.uhdr import encode_p3_jpeg
     rgb = np.random.default_rng(17).random((271, 313, 3), dtype=np.float32)
     assert nef._encode_jpeg(rgb) == encode_p3_jpeg(rgb, 95)
+
+
+def test_explicit_session_reuses_models_and_cleans_after_failure(pipeline):
+    from m9.session import NefSession
+    source, output, decode, _ = pipeline
+    with NefSession("cpu") as session:
+        first = nef.process_nef(source, output, device="cpu", session=session)
+        second = nef.process_nef(source, output, device="cpu", session=session)
+        assert session.load_count == 1 and session.loaded
+        assert first["jpeg_sha256"] == second["jpeg_sha256"]
+        assert first["models"]["weights_sha256"] == second["models"]["weights_sha256"]
+        decode.side_effect = ValueError("damaged RAW")
+        with pytest.raises(RuntimeError, match="damaged RAW"):
+            nef.process_nef(source, output, device="cpu", session=session)
+        assert not session.loaded and not session.closed
+        decode.side_effect = None
+        nef.process_nef(source, output, device="cpu", session=session)
+        assert session.load_count == 2 and session.loaded
+        with pytest.raises(ValueError, match="NEF"):
+            nef.process_nef(source.with_suffix('.jpg'), output, device="cpu", session=session)
+        assert not session.loaded
+    assert session.closed and not session.loaded
+
+
+def test_single_call_releases_session_before_done_event(pipeline, monkeypatch):
+    from m9.session import NefSession
+    source, output, _, _ = pipeline
+    sessions = []
+    def create(device):
+        session = NefSession(device)
+        sessions.append(session)
+        return session
+    monkeypatch.setattr(nef, "NefSession", create)
+    def progress(stage, message):
+        if stage == "done":
+            assert sessions[0].closed and not sessions[0].loaded
+    report = nef.process_nef(source, output, progress=progress)
+    assert sessions[0].closed
+    assert report["exif"]["source"] == str(source)
+    with Image.open(report["output"]) as image:
+        assert image.getexif()[274] == 1
+        assert image.getexif()[256] == 49 and image.getexif()[257] == 33
+
+
+def test_external_session_rejects_explicit_different_device(pipeline, monkeypatch):
+    from m9.session import NefSession
+    source, output, decode, _ = pipeline
+    with NefSession("cpu") as session:
+        monkeypatch.setattr(nef, "resolve_device", lambda value: "cuda")
+        with pytest.raises(ValueError, match="fixed NEF session"):
+            nef.process_nef(source, output, device="cuda", session=session)
+        decode.assert_not_called()
+
+
+@pytest.mark.parametrize("method", ["native", "dng"])
+def test_exif_uses_original_source_without_applying_recorded_bias(pipeline, monkeypatch, method):
+    from m9 import exif
+    source, output, _, _ = pipeline
+    metadata = Mock(return_value=({"Make": "NIKON", "Model": "Z 7_2", "ExposureBiasValue": (-2, 6),
+                                  "ExposureTime": (1, 125), "FNumber": (28, 10),
+                                  "ISOSpeedRatings": 200, "LensModel": "Test Lens"}, {}))
+    monkeypatch.setattr(exif, "_read_nef_fields", metadata)
+    report = nef.process_nef(source, output, method=method)
+    metadata.assert_called_once_with(source)
+    assert report["exif"]["source"] == str(source) and report["exif"]["success"]
+    assert report["record"] is None and report["ev"] == 0.0
+    assert nef.b2y_from_raw.call_args.kwargs == {"camera": "tele", "ev": 0.0}
+    path = Path(report["output"])
+    assert path.stat().st_size == report["jpeg_bytes"]
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == report["jpeg_sha256"]
+    with Image.open(path) as image:
+        assert image.info["icc_profile"] == icc_p3()
+        tags = image.getexif()
+        assert tags[271] == "NIKON" and tags[274] == 1
+        nested = tags.get_ifd(34665)
+        assert float(nested[37380]) == pytest.approx(-1 / 3)
+        assert nested[40961] == 65535 and (nested[40962], nested[40963]) == image.size

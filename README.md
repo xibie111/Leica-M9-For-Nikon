@@ -14,6 +14,8 @@
 | 尼康适配 | 通用 DNG 元数据与颜色矩阵 | NEF 曝光、白平衡、方向、有效照片区域及缺失相机矩阵适配 |
 | 大图处理 | 大图先缩入约 4K 工作画布，最后放大 | `original` 模式将风格映射回全尺寸，并用全尺寸输入运行 colorfix |
 | 日常使用 | 单张命令行 | Windows 界面、多选与文件夹导入、串行批量、完成当前张后停止、失败项重新入队 |
+| 拍摄信息 | 基础 JPEG 输出 | 从原 NEF 白名单保留基础 EXIF，按成片方向与尺寸写入，不重新编码图像 |
+| 批量模型 | 每张独立加载 | 同一轮队列复用严格校验后的模型，整轮完成或停止后释放，下一轮重新加载 |
 | 输出与错误处理 | 通用渲染及可选后端 | NEF 入口严格要求网络成功；完整写入后发布、防覆盖、明确记录失败 |
 | 验证 | 上游逆向与节点校验 | Z7 II / Z6 III 实拍、输入输出哈希、同图管线对照、窗口及队列回归 |
 
@@ -95,7 +97,7 @@ StyleTrans low/high 风格推理 + colorfix 细节处理
          ↓
 LeicaFilter LUT 与风格暗角
          ↓
-嵌入 Display P3 ICC 的 SDR JPEG
+保留基础 EXIF、嵌入 Display P3 ICC 的 SDR JPEG
 ~~~
 
 日常 NEF 的单张 API、CLI、GUI 和批量队列共用处理核心，固定采用 `camera="tele"`、D50、额外 EV=0、JPEG 质量 95。使用上游 `ae_tele` 和 tele IPE 调校，保留原网络权重及选择门限，不额外增加曝光、对比度、阴影或人脸提亮。
@@ -106,6 +108,12 @@ LeicaFilter LUT 与风格暗角
 - **原片与旧成片不覆盖。** 新文件名示例为 `DSC_0001_M9_tele_native_original.jpg`，重名时自动递增。JSON 默认不导出，开启后记录参数、模型状态、哈希和耗时，查看 JPEG 不依赖它。
 
 原始照片范围与方向按相机元数据处理。切换依据、入口范围及回归结果见 [tele 默认管线验收](docs/NEF_TELE_DEFAULT.md)。
+
+### 拍摄信息与批量模型
+
+成片默认保留原 NEF 的相机、镜头、拍摄时间、快门、光圈、ISO、焦距与拍摄曝光补偿。native/DNG 均以原 NEF 为来源；拍摄曝光补偿仅作记录，渲染仍为额外 EV=0。方向写为正常，尺寸写为实际成片；保留 P3 ICC，不误标 sRGB，不复制 GPS、序列号、MakerNote 或缩略图。可选字段缺失或损坏时跳过并记录；JSON 关闭也会写 EXIF。
+
+同一轮 GUI 队列首次严格加载 low、high、colorfix，后续逐张复用模型和权重身份，每张仍独立计算色温、照度和选择网络。整轮完成、停止或关闭等待当前照片完成后释放；下一轮重新加载。单张失败会清除模型，下一张重新初始化。单张 CLI/API 自行管理会话；自定义批处理器继续按原约定工作。不会缓存照片或推理输出，也没有改变网络精度、处理分辨率或推理 batch。实现与实测见 [EXIF 与模型会话验收](docs/NEF_EXIF_SESSION.md)。
 
 ### original 与 phone
 
@@ -138,7 +146,8 @@ LeicaFilter LUT 与风格暗角
 | Z6 III 样片 | 38 个不同 NEF 样本完成 native 批量处理，原片哈希前后相同 |
 | main / tele 对照 | 38 张完整配对，并提供 Windows 原生 RAW 默认显影与内嵌 JPEG 参考；重跑的 38 张 main 与旧版逐字节一致 |
 | tele 日常入口 | 4 张真实 GUI 队列成片与冻结 tele 结果逐字节一致；另完成 Z7 II 默认 DNG CLI 实测 |
-| 自动化回归 | tele 默认切换阶段 **382 项通过**，覆盖矩阵、元数据、几何、模型调用、输出发布及 CLI/GUI/队列连接 |
+| EXIF 与模型会话 | 两台机身保留基础 EXIF；像素、ICC 与压缩图像数据不变；同策略下共享/独立会话成片逐字节一致 |
+| 自动化回归 | 当前 **465 项通过**，覆盖矩阵、EXIF、几何、模型会话、输出发布及 CLI/GUI/队列连接 |
 
 两台机身合计 **56 个内容不同的 NEF 样本**。历史 main、native/DNG、original/phone 验收各有覆盖范围，不应理解为 56 张都运行过全部组合。
 
@@ -156,6 +165,7 @@ tele 在本批对照中改善了许多主体偏暗的照片，同时也让部分
 - [批量队列验收](docs/NEF_BATCH_VALIDATION.md)
 - [Z6 III 兼容性修复与 38 张实测](docs/NEF_Z6III_VALIDATION.md)
 - [tele 默认管线验收](docs/NEF_TELE_DEFAULT.md)
+- [EXIF 与模型会话验收](docs/NEF_EXIF_SESSION.md)
 - [相机矩阵与 RAW 元数据说明](docs/RAW_MATRIX_NOTES.md)
 
 ## 当前边界

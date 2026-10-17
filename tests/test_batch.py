@@ -1,3 +1,4 @@
+from contextlib import contextmanager, nullcontext
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 import queue
@@ -314,3 +315,114 @@ def test_empty_or_finished_only_start_does_not_create_thread(tmp_path):
     with pytest.raises(ValueError):
         job.start(model.items, BatchOptions("native", tmp_path))
     assert job.thread is None and job.events.empty()
+
+
+@pytest.mark.parametrize("stop", [False, True])
+def test_processor_context_is_created_entered_and_closed_once_on_worker(tmp_path, stop):
+    model = PhotoQueue()
+    model.add_paths([tmp_path / f"{index}.NEF" for index in range(3)])
+    lifecycle, calls = [], []
+
+    def processor(**kwargs):
+        lifecycle.append(("process", threading.get_ident()))
+        calls.append(kwargs)
+        if stop:
+            job.request_stop()
+        elif len(calls) == 2:
+            raise ValueError("photo failure still closes context")
+        return {"output": "result.jpg"}
+
+    def factory(options):
+        lifecycle.append(("factory", threading.get_ident()))
+        assert options == BatchOptions("native", tmp_path, device="cpu")
+
+        @contextmanager
+        def context():
+            lifecycle.append(("enter", threading.get_ident()))
+            try:
+                yield processor
+            finally:
+                assert not any(kind == "finished" for kind, _ in list(job.events.queue))
+                lifecycle.append(("exit", threading.get_ident()))
+        return context()
+
+    job = BatchJob(lambda **kwargs: pytest.fail("context processor must be used"), processor_context=factory)
+    job.start(model.pending_items, BatchOptions("native", tmp_path, device="cpu"))
+    events = finish(job, model)
+    expected_calls = 1 if stop else 3
+    assert [phase for phase, _ in lifecycle] == ["factory", "enter"] + ["process"] * expected_calls + ["exit"]
+    assert {worker for _, worker in lifecycle} == {job.thread.ident}
+    assert job.thread.ident != threading.get_ident()
+    assert all("session" not in call for call in calls)
+    assert events[-1][1] == dict(total=3, completed=expected_calls, succeeded=1 if stop else 2,
+                                failed=0 if stop else 1, stopped=stop)
+    assert not any(kind == "batch_error" for kind, _ in events)
+
+
+@pytest.mark.parametrize("failure", ["factory", "enter", "noncallable", "cleanup"])
+def test_context_failures_are_visible_without_fabricating_photo_failures(tmp_path, failure):
+    model = PhotoQueue()
+    model.add_paths([tmp_path / "photo.NEF"])
+    closed = []
+
+    def factory(options):
+        if failure == "factory":
+            raise RuntimeError("factory failed")
+
+        @contextmanager
+        def context():
+            if failure == "enter":
+                raise RuntimeError("enter failed")
+            try:
+                yield None if failure == "noncallable" else lambda **kwargs: {"output": "complete.jpg"}
+            finally:
+                closed.append(threading.get_ident())
+                if failure == "cleanup":
+                    raise RuntimeError("cleanup failed")
+        return context()
+
+    job = BatchJob(None, processor_context=factory)
+    job.start(model.pending_items, BatchOptions("native", tmp_path))
+    events = finish(job, model)
+    error, = [payload for kind, payload in events if kind == "batch_error"]
+    assert error["phase"] == ("cleanup" if failure == "cleanup" else "setup")
+    assert error["message"] and "Traceback" in error["traceback"]
+    assert all(isinstance(value, str) for value in error.values())
+    assert events[-2][0] == "batch_error"
+    assert events[-1][1] == dict(total=1, completed=int(failure == "cleanup"),
+                                succeeded=int(failure == "cleanup"), failed=0, stopped=False)
+    assert model.items[0].status == ("succeeded" if failure == "cleanup" else "pending")
+    assert bool(closed) == (failure in ("noncallable", "cleanup"))
+    # A failed context does not poison the next run or emit stale events.
+    job.processor_context = lambda options: nullcontext(lambda **kwargs: {"output": "retry.jpg"})
+    if failure == "cleanup":
+        model.add_paths([tmp_path / "next.NEF"])
+    job.start(model.pending_items, BatchOptions("native", tmp_path))
+    assert finish(job, model)[-1][1]["succeeded"] == 1
+
+
+def test_worker_base_exception_closes_context_before_visible_batch_error(tmp_path):
+    model = PhotoQueue()
+    model.add_paths([tmp_path / "current.NEF", tmp_path / "remaining.NEF"])
+    lifecycle = []
+
+    def processor(**kwargs):
+        raise KeyboardInterrupt("worker interrupted")
+
+    @contextmanager
+    def context(options):
+        try:
+            yield processor
+        finally:
+            lifecycle.append("closed")
+            assert not any(kind in ("batch_error", "finished") for kind, _ in list(job.events.queue))
+
+    job = BatchJob(None, processor_context=context)
+    job.start(model.pending_items, BatchOptions("native", tmp_path))
+    events = finish(job, model)
+    assert lifecycle == ["closed"]
+    assert [kind for kind, _ in events] == ["item_started", "item_error", "batch_error", "finished"]
+    assert events[-2][1]["phase"] == "processing" and "KeyboardInterrupt" in events[-2][1]["traceback"]
+    assert events[-1][1] == dict(total=2, completed=1, succeeded=0, failed=1, stopped=False)
+    assert model.items[0].status == "failed" and "KeyboardInterrupt" in model.items[0].details
+    assert model.items[1].status == "pending"

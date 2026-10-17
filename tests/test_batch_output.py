@@ -1,4 +1,7 @@
 """Batch integration with the real JPEG/JSON publisher and existing synthetic RAW fixture."""
+from contextlib import contextmanager
+from dataclasses import replace
+from functools import partial
 import hashlib
 import json
 from pathlib import Path
@@ -10,6 +13,7 @@ import pytest
 
 from m9 import frontend, nef
 from m9.batch import BatchJob, BatchOptions, PhotoQueue
+from m9.session import NefSession
 from m9.uhdr import icc_p3
 from test_nef import pipeline  # Reuse the established RAW/network boundary fixture.
 
@@ -160,3 +164,142 @@ def test_stop_during_publication_finishes_active_pair_and_keeps_rest_pending(
     assert sorted(path.suffix for path in output.iterdir()) == [".jpg", ".json"]
     assert events[-1] == ("finished", {"total": 3, "completed": 1, "succeeded": 1,
                                       "failed": 0, "stopped": True})
+
+
+@pytest.mark.parametrize("fail_middle", [False, True])
+def test_batch_context_reuses_models_but_keeps_photo_decisions_and_publication_independent(
+    pipeline, tmp_path, monkeypatch, fail_middle
+):
+    source, output, decode, style = pipeline
+    paths = _same_basename_sources(source, tmp_path)
+    scenes = dict(zip(paths, ((350, 4000), (200, 5500), (350, 4500))))
+    for index, path in enumerate(paths):
+        # Valid tiny TIFF/Exif headers let the real optional reader retain each
+        # original's ISO; RAW pixels and networks remain the existing fakes.
+        tags = Image.Exif()
+        tags[271], tags[272] = "NIKON", "NIKON Z6_3"
+        tags[34665] = {34855: 100 * (index + 1), 36867: f"2026:10:17 12:00:0{index}"}
+        Image.new("L", (1, 1)).save(path, format="TIFF", exif=tags.tobytes())
+    before = _hashes(paths)
+    output.mkdir()
+    sentinel = output / f"{source.stem}_M9_tele_native_original.jpg"
+    sentinel.write_bytes(b"previous result")
+    sentinel.with_suffix(".json").write_bytes(b"previous report")
+    old_files = {path: path.read_bytes() for path in output.iterdir()}
+
+    sessions, generations, observed, options_seen, finished_states = [], [], [], [], []
+    state = {"path": None, "failed": False}
+    raw, matrix, info = decode.return_value
+    original_frontend = nef.b2y_from_raw.side_effect
+    original_loader = nef.styletrans.load.side_effect
+
+    def load_raw(path, **kwargs):
+        state["path"] = Path(path)
+        return raw, matrix, replace(info, cct=scenes[Path(path)][1])
+
+    def photo_frontend(*args, **kwargs):
+        result = original_frontend(*args, **kwargs)
+        result.lux_index, result.cct = scenes[state["path"]]
+        return result
+
+    def load_models(**kwargs):
+        model = original_loader(**kwargs)
+        model.be.nets.update({name: object() for name in ("low", "high", "colorfix")})
+        generations.append((model.be, tuple(model.be.nets.values())))
+        return model
+
+    def apply_style(image, lux_index, cct, **kwargs):
+        active = sessions[-1]
+        assert active.loaded and active._model is style
+        observed.append({"path": state["path"], "scene": (lux_index, cct),
+                         "backend": style.be, "networks": tuple(style.be.nets.values()),
+                         "weights": active.weights_sha256})
+        if fail_middle and state["path"] == paths[1] and not state["failed"]:
+            state["failed"] = True
+            raise RuntimeError("synthetic middle-photo style failure")
+        if fail_middle and state["path"] == paths[2]:
+            assert generations[0][0].nets == {}  # Failure released the old backend first.
+        return image
+
+    decode.side_effect = load_raw
+    nef.b2y_from_raw.side_effect = photo_frontend
+    nef.styletrans.load.side_effect = load_models
+    style.side_effect = apply_style
+
+    @contextmanager
+    def processor_context(options):
+        options_seen.append(options)
+        with NefSession(options.device) as session:
+            sessions.append(session)
+            yield partial(nef.process_nef, session=session)
+
+    unused = Mock(side_effect=AssertionError("the context's processor must handle this round"))
+    job = BatchJob(unused, processor_context=processor_context)
+    real_put = job.events.put
+
+    def put(event, *args, **kwargs):
+        if event[0] == "finished":
+            finished_states.append([(session.closed, session.loaded) for session in sessions])
+        return real_put(event, *args, **kwargs)
+
+    monkeypatch.setattr(job.events, "put", put)
+    photos = PhotoQueue()
+    items = photos.add_paths(paths)
+    options = BatchOptions("native", output, device="cpu", write_json=True)
+    job.start(photos.pending_items, options)
+    events = _finish(job, photos)
+    assert [item.status for item in items] == (["succeeded", "failed", "succeeded"] if fail_middle
+                                              else ["succeeded"] * 3)
+    assert nef.styletrans.load.call_count == (2 if fail_middle else 1)
+    assert sessions[0].load_count == (2 if fail_middle else 1)
+    assert sessions[0].closed and not sessions[0].loaded and not sessions[0].weights_sha256
+    assert observed[0]["scene"] == (350, 4000) and observed[1]["scene"] == (200, 5500)
+    assert observed[2]["scene"] == (350, 4500)
+    if fail_middle:
+        assert observed[0]["backend"] is observed[1]["backend"]
+        assert observed[2]["backend"] is not observed[0]["backend"]
+        assert observed[2]["networks"] != observed[0]["networks"]
+        assert "middle-photo" in items[1].error and items[1].report is None
+    else:
+        assert all(observation["backend"] is observed[0]["backend"] for observation in observed)
+        assert all(observation["networks"] == observed[0]["networks"] for observation in observed)
+    assert observed[0]["weights"] == observed[1]["weights"] == observed[2]["weights"]
+    assert all(backend.nets == {} for backend, _ in generations)
+    succeeded = [item for item in items if item.status == "succeeded"]
+    assert [item.report["models"]["selected_style"] for item in succeeded] == (
+        ["low", "low"] if fail_middle else ["low", "high", "low"])
+    first_round_files = {path: path.read_bytes() for path in output.iterdir()}
+    assert events[-1] == ("finished", {"total": 3, "completed": 3,
+                                      "succeeded": len(succeeded), "failed": int(fail_middle), "stopped": False})
+
+    # A deliberately new round owns a fresh session and must strictly load again.
+    photos.clear()
+    next_item, = photos.add_paths([paths[0]])
+    job.start(photos.pending_items, options)
+    second_events = _finish(job, photos)
+    assert next_item.status == "succeeded" and sessions[1] is not sessions[0]
+    assert sessions[1].load_count == 1 and sessions[1].closed and not sessions[1].loaded
+    assert nef.styletrans.load.call_count == (3 if fail_middle else 2)
+    assert all(call.kwargs == {"device": "cpu", "strict": True} for call in nef.styletrans.load.call_args_list)
+    assert finished_states == [[(True, False)], [(True, False), (True, False)]]
+    assert options_seen == [options, options]
+    assert second_events[-1] == ("finished", {"total": 1, "completed": 1,
+                                             "succeeded": 1, "failed": 0, "stopped": False})
+    unused.assert_not_called()
+    assert all(path.read_bytes() == content for path, content in first_round_files.items())
+    assert all(path.read_bytes() == content for path, content in old_files.items())
+    assert _hashes(paths) == before
+    for item in [*succeeded, next_item]:
+        report = item.report
+        assert report["exif"]["success"] and report["exif"]["source_read"]
+        assert report["exif"]["source"] == str(item.path)
+        assert json.loads(Path(report["record"]).read_text(encoding="utf-8")) == report
+        with Image.open(report["output"]) as image:
+            image.load()
+            root = image.getexif()
+            nested = root.get_ifd(34665)
+            assert image.info["icc_profile"] == icc_p3() and image.size == (49, 33)
+            assert root[274] == 1 and nested[40961] == 65535
+            assert [nested[40962], nested[40963]] == [49, 33]
+            assert nested[34855] == 100 * (paths.index(item.path) + 1)
+    assert not list(output.glob("*.lock")) and not list(output.glob("*.part"))

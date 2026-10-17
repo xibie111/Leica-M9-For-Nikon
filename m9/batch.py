@@ -1,6 +1,7 @@
 """Path-based photo queue and serial worker; UI state changes only on the UI thread."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -93,8 +94,9 @@ class BatchOptions:
 
 
 class BatchJob:
-    def __init__(self, processor):
+    def __init__(self, processor, processor_context=None):
         self.processor = processor
+        self.processor_context = processor_context
         self.events = queue.Queue()
         self.thread = None
         self._boundary = threading.Lock()
@@ -129,28 +131,48 @@ class BatchJob:
     def _run(self, snapshot, options):
         total = len(snapshot)
         completed = succeeded = failed = 0
-        for ordinal, (item_id, path) in enumerate(snapshot, 1):
-            # The started event is the boundary: stop and the next start are mutually exclusive.
-            with self._boundary:
-                if self._stop_requested:
-                    break
-                self.events.put(("item_started", {"id": item_id, "input_path": path,
-                                                  "ordinal": ordinal, "total": total}))
-            try:
-                report = self.processor(
-                    input_path=path, output_dir=options.output_dir, method=options.method,
-                    resolution=options.resolution, device=options.device, write_json=options.write_json,
-                    progress=lambda stage, message, current_id=item_id: self.events.put(
-                        ("progress", {"id": current_id, "stage": stage, "message": message})),
-                )
-            except Exception as exc:
+        active_item_id = None
+        phase = "setup"
+        try:
+            context = self.processor_context(options) if self.processor_context is not None else nullcontext(self.processor)
+            with context as processor:
+                if not callable(processor):
+                    raise TypeError("队列处理上下文必须返回可调用的处理器。")
+                phase = "processing"
+                for ordinal, (item_id, path) in enumerate(snapshot, 1):
+                    # The started event is the boundary: stop and the next start are mutually exclusive.
+                    with self._boundary:
+                        if self._stop_requested:
+                            break
+                        self.events.put(("item_started", {"id": item_id, "input_path": path,
+                                                          "ordinal": ordinal, "total": total}))
+                        active_item_id = item_id
+                    try:
+                        report = processor(
+                            input_path=path, output_dir=options.output_dir, method=options.method,
+                            resolution=options.resolution, device=options.device, write_json=options.write_json,
+                            progress=lambda stage, message, current_id=item_id: self.events.put(
+                                ("progress", {"id": current_id, "stage": stage, "message": message})),
+                        )
+                    except Exception as exc:
+                        failed += 1
+                        self.events.put(("item_error", {"id": item_id, "message": str(exc),
+                                                        "traceback": traceback.format_exc()}))
+                    else:
+                        succeeded += 1
+                        self.events.put(("item_done", {"id": item_id, "report": report}))
+                    completed += 1
+                    active_item_id = None
+                phase = "cleanup"
+        except BaseException as exc:
+            details = traceback.format_exc()
+            if active_item_id is not None:
                 failed += 1
-                self.events.put(("item_error", {"id": item_id, "message": str(exc),
-                                                "traceback": traceback.format_exc()}))
-            else:
-                succeeded += 1
-                self.events.put(("item_done", {"id": item_id, "report": report}))
-            completed += 1
-        with self._boundary:
-            self.events.put(("finished", {"total": total, "completed": completed, "succeeded": succeeded,
-                                          "failed": failed, "stopped": self._stop_requested and completed < total}))
+                completed += 1
+                self.events.put(("item_error", {"id": active_item_id, "message": str(exc), "traceback": details}))
+            self.events.put(("batch_error", {"phase": phase, "message": str(exc),
+                                             "traceback": details}))
+        finally:
+            with self._boundary:
+                self.events.put(("finished", {"total": total, "completed": completed, "succeeded": succeeded,
+                                              "failed": failed, "stopped": self._stop_requested and completed < total}))

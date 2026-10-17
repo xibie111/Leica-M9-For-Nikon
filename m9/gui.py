@@ -1,6 +1,8 @@
 """Responsive, session-only Tk photo queue for the strict NEF pipeline."""
 from __future__ import annotations
 
+from contextlib import contextmanager
+from functools import partial
 import os
 from pathlib import Path
 import queue
@@ -9,22 +11,26 @@ import traceback
 from .batch import BatchJob, BatchOptions, PhotoQueue
 
 
+@contextmanager
+def _nef_processor_context(options):
+    from .nef import process_nef
+    from .session import NefSession
+    with NefSession(options.device) as session:
+        yield partial(process_nef, session=session)
+
+
 class NefWindow:
     def __init__(self, root, processor=None):
         import tkinter as tk
         from tkinter import ttk
 
-        if processor is None:
-            def processor(**kwargs):
-                from .nef import process_nef
-                return process_nef(**kwargs)
-
         self.root = root
         self.photo_queue = PhotoQueue()
-        self.job = BatchJob(processor)
+        self.job = BatchJob(processor, processor_context=_nef_processor_context if processor is None else None)
         self.busy = self.closed = self.close_requested = False
         self.close_dialog = None
         self.last_summary = self.run_options = self._pending_finish = None
+        self.batch_errors = []
         self._run_ids = set()
         self._counts = dict(total=0, completed=0, succeeded=0, failed=0)
         self.output_dir = tk.StringVar(root)
@@ -252,6 +258,7 @@ class NefWindow:
         self.run_options = BatchOptions(method, Path(output).expanduser(), self.resolution.get(),
                                         self.device.get(), bool(self.write_json.get()))
         self.last_summary = self._pending_finish = None
+        self.batch_errors = []
         self._run_ids = {item.id for item in pending}
         self._counts = dict(total=len(pending), completed=0, succeeded=0, failed=0)
         self._show_counts()
@@ -300,6 +307,12 @@ class NefWindow:
                     self.append_log(f"成功：{payload['report']['output']}")
                 else:
                     self.append_log(f"失败：{item.path if item else payload['id']} · {payload['message']}\n{payload['traceback']}")
+            elif kind == "batch_error":
+                self.batch_errors.append(dict(payload))
+                phase = {"setup": "准备", "processing": "执行", "cleanup": "清理"}.get(payload["phase"], payload["phase"])
+                self.current_stage.set(f"当前阶段：队列{phase}失败")
+                self.status.set("队列发生错误；详细信息见日志。")
+                self.append_log(f"队列{phase}失败：{payload['message']}\n{payload['traceback']}")
             elif kind == "finished":
                 self._pending_finish = payload
         # A terminal event can arrive just before its worker returns. Both must finish.
@@ -315,9 +328,15 @@ class NefWindow:
         self._show_counts()
         self.set_busy(False)
         self.current_photo.set("当前照片：无")
-        self.current_stage.set("当前阶段：已停止" if payload["stopped"] else "当前阶段：本轮完成")
-        self.status.set("本轮已停止，未开始的照片仍在等待。" if payload["stopped"] else "本轮处理完成。")
-        self.append_log(self.summary.get() + (" · 已停止" if payload["stopped"] else " · 已完成"))
+        if self.batch_errors:
+            self.current_stage.set("当前阶段：队列错误")
+            self.status.set("本轮队列发生错误；照片结果见列表，详细信息见日志。")
+            conclusion = " · 队列错误"
+        else:
+            self.current_stage.set("当前阶段：已停止" if payload["stopped"] else "当前阶段：本轮完成")
+            self.status.set("本轮已停止，未开始的照片仍在等待。" if payload["stopped"] else "本轮处理完成。")
+            conclusion = " · 已停止" if payload["stopped"] else " · 已完成"
+        self.append_log(self.summary.get() + conclusion)
         failed = [item for item in self.photo_queue.items if item.id in self._run_ids and item.status == "failed"]
         if failed:
             self.append_log("本轮失败汇总：\n" + "\n".join(f"{item.path}：{item.error}" for item in failed))

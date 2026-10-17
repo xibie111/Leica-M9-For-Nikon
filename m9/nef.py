@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
@@ -25,6 +25,8 @@ from .frontend import b2y_from_raw
 from .leicafilter import LeicaFilter
 from .raw_input import load_nef
 from .render import _tele_zoom
+from .session import NefSession, clear_exception_frames
+from .exif import add_nef_exif
 from . import styletrans
 from .uhdr import icc_p3, srgb_to_p3, _seg
 
@@ -134,14 +136,35 @@ def _encode_jpeg(rgb, quality=95):
 
 
 def process_nef(input_path, output_dir, method="dng", resolution="original", device="auto",
-                converter=None, progress=None, write_json=False):
+                converter=None, progress=None, write_json=False, *, session=None):
     """Return the processing record; optionally save it beside the JPEG with write_json=True."""
-    source = Path(input_path).expanduser().resolve()
-    if source.suffix.lower() != ".nef" or not source.is_file():
-        raise ValueError(f"请选择存在的 NEF 文件：{source}")
-    if method not in ("dng", "native") or resolution not in ("original", "phone"):
-        raise ValueError("Invalid method or resolution")
-    selected = resolve_device(device)
+    context = NefSession(resolve_device(device)) if session is None else nullcontext(session)
+    active = None
+    try:
+        with context as active:
+            source = Path(input_path).expanduser().resolve()
+            if source.suffix.lower() != ".nef" or not source.is_file():
+                raise ValueError(f"请选择存在的 NEF 文件：{source}")
+            if method not in ("dng", "native") or resolution not in ("original", "phone"):
+                raise ValueError("Invalid method or resolution")
+            if device != "auto" and resolve_device(device) != active.device:
+                raise ValueError("Requested device differs from the fixed NEF session device")
+            report = _process_nef(source, output_dir, method, resolution, device, converter, progress, write_json, active)
+        if progress:
+            progress("done", f"完成：{report['output']}")
+        return report
+    except BaseException as error:
+        clear_exception_frames(error)
+        if active is not None and not active.closed:
+            try:
+                active.invalidate()
+            except Exception as cleanup_error:
+                error.add_note(f"NEF session cleanup also failed: {cleanup_error}")
+        raise
+
+
+def _process_nef(source, output_dir, method, resolution, device, converter, progress, write_json, session):
+    selected = session.device
     started = time.perf_counter()
     timings = {}
 
@@ -165,8 +188,9 @@ def process_nef(input_path, output_dir, method="dng", resolution="original", dev
             timings[name] = round(time.perf_counter() - before, 4)
 
     with _Resources(selected) as resources:
-        with phase("models", f"检查三份 StyleTrans 权重，设备 {selected}"):
-            st = styletrans.load(device=selected, strict=True)
+        model_message = "复用本轮 StyleTrans 模型" if session.loaded else "严格加载并检查三份 StyleTrans 权重"
+        with phase("models", f"{model_message}，设备 {selected}"):
+            st = session.get_model()
         with phase("raw", "转换并解码 RAW" if method == "dng" else "直接解码 NEF"):
             linear, cam2srgb, info = load_nef(source, method=method, converter=converter, progress=notify)
             zoom = _tele_zoom(str(source))
@@ -182,7 +206,6 @@ def process_nef(input_path, output_dir, method="dng", resolution="original", dev
         with phase("filter", "LeicaFilter LUT 与暗角"):
             image = LeicaFilter(device=selected)(image, lux_index=fe.lux_index, cct=fe.cct,
                                                   zoom=zoom, scene="common", style_trans_on=True)
-        model_dir = Path(st.be.wdir)
         import torch
         report = {
             "status": "complete", "input": str(source), "input_sha256": _sha256(source),
@@ -194,7 +217,7 @@ def process_nef(input_path, output_dir, method="dng", resolution="original", dev
             "raw_info": asdict(info), "cct_kelvin": float(fe.cct), "lux_index": float(fe.lux_index),
             "exposure": {**asdict(fe.ae), "short_adjustment_ev": math.log2(fe.ae.exp_short)},
             "models": {"StyleTrans": "on", "selected_style": styletrans.choose_model(fe.lux_index, fe.cct),
-                       "weights_sha256": {m: _sha256(model_dir / f"{m}.npz") for m in ("low", "high", "colorfix")}},
+                       "weights_sha256": session.weights_sha256},
             "software": {p: importlib.metadata.version(p) for p in
                          ("numpy", "rawpy", "tifffile", "torch", "opencv-python-headless")},
             "python": sys.version, "cuda_runtime": torch.version.cuda,
@@ -206,6 +229,7 @@ def process_nef(input_path, output_dir, method="dng", resolution="original", dev
         }
         with phase("jpeg", "编码 Display P3 JPEG"):
             data = _encode_jpeg(image)
+            data, report["exif"] = add_nef_exif(data, source, tuple(report["output_size"]))
         report["resources"] = resources.finish()
         report["timings_seconds"]["total_before_publish"] = round(time.perf_counter() - started, 4)
         # The public return value and the on-disk record must use the same JSON-compatible types.
@@ -216,7 +240,6 @@ def process_nef(input_path, output_dir, method="dng", resolution="original", dev
             report["output"] = str(target)
             report["record"] = str(target.with_suffix(".json")) if write_json else None
             _write_result(data, report, target, write_json=write_json)
-    notify("done", f"完成：{report['output']}")
     return report
 
 

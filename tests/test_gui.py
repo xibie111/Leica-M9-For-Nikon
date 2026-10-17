@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -74,26 +75,44 @@ def test_native_first_defaults_and_keyboard_order(tk_window):
 
 @pytest.mark.parametrize("method", ["native", "dng"])
 def test_default_gui_processor_uses_shared_core_without_camera_override(tmp_path, tk_window, monkeypatch, method):
-    from m9 import nef
-    calls = []
+    from m9 import nef, session
+    calls, lifecycle = [], []
+
+    class Session:
+        def __init__(self, device):
+            lifecycle.append(("create", threading.get_ident(), device))
+
+        def __enter__(self):
+            lifecycle.append(("enter", threading.get_ident(), None))
+            return self
+
+        def __exit__(self, *args):
+            lifecycle.append(("exit", threading.get_ident(), None))
 
     def core(input_path, output_dir, method="dng", resolution="original", device="auto",
-             converter=None, progress=None, write_json=False):
-        calls.append((input_path, method, resolution, device, write_json))
+             converter=None, progress=None, write_json=False, session=None):
+        calls.append((input_path, method, resolution, device, write_json, session))
         progress("frontend", "tele")
         return {"output": str(output_dir / f"{input_path.stem}_M9_tele_{method}_{resolution}.jpg"),
                 "record": None, "camera_tuning": "tele"}
 
     monkeypatch.setattr(nef, "process_nef", core)
+    monkeypatch.setattr(session, "NefSession", Session)
     window = NefWindow(tk_window)  # Exercise the production lazy import and BatchJob together.
     source = tmp_path / "照片.NEF"
     source.write_bytes(b"synthetic input")
-    window.add_paths([source])
+    window.add_paths([source, tmp_path / "second.NEF"])
     window.output_dir.set(str(tmp_path / "输出"))
     (window.native_button if method == "native" else window.dng_button).invoke()
     pump(tk_window, lambda: not window.busy)
-    assert calls == [(source.resolve(), method, "original", "auto", False)]
-    item, = window.photo_queue.items
+    assert [call[:5] for call in calls] == [(path.resolve(), method, "original", "auto", False)
+                                          for path in (source, tmp_path / "second.NEF")]
+    assert isinstance(calls[0][-1], Session) and calls[0][-1] is calls[1][-1]
+    assert [entry[0] for entry in lifecycle] == ["create", "enter", "exit"]
+    assert {entry[1] for entry in lifecycle} == {window.job.thread.ident}
+    assert window.job.thread.ident != threading.get_ident()
+    assert lifecycle[0][2] == "auto"
+    item = window.photo_queue.items[0]
     assert item.status == "succeeded" and item.report["camera_tuning"] == "tele"
     assert f"_M9_tele_{method}_original.jpg" in window.tree.item(item.id, "values")[3]
     assert "tele" in window.log.get("1.0", "end")
@@ -142,6 +161,7 @@ def test_loop_responsive_one_worker_and_busy_mutations_blocked(tmp_path, tk_wind
         return {"output": str(input_path.with_suffix(".jpg")), "record": None}
 
     window, paths = make_window(tk_window, tmp_path, processor)
+    assert window.job.processor_context is None
     main_id = threading.get_ident()
     applied_ids = []
     real_apply = window.photo_queue.apply_event
@@ -324,6 +344,83 @@ def test_terminal_event_does_not_reenable_controls_before_thread_exit(tmp_path, 
         window.job.thread.join(timeout=3)
     pump(tk_window, lambda: not window.busy)
     assert window.last_summary["completed"] == 1
+
+
+@pytest.mark.parametrize("action", ["complete", "stop", "close"])
+def test_context_cleanup_finishes_before_terminal_ui_or_close(tmp_path, tk_window, action):
+    entered, release_photo = threading.Event(), threading.Event()
+    cleaning, release_cleanup = threading.Event(), threading.Event()
+    lifecycle = []
+
+    def processor(**kwargs):
+        entered.set()
+        assert release_photo.wait(3)
+        return {"output": "complete.jpg"}
+
+    @contextmanager
+    def context(options):
+        try:
+            yield processor
+        finally:
+            cleaning.set()
+            assert release_cleanup.wait(3)
+            lifecycle.append("closed")
+
+    window, _ = make_window(tk_window, tmp_path, processor, count=1 if action == "complete" else 2)
+    window.job.processor_context = context
+    window.start("native")
+    try:
+        assert entered.wait(2)
+        if action == "stop":
+            window.request_stop()
+        elif action == "close":
+            window.close()
+            window.close_finish_button.invoke()
+        release_photo.set()
+        assert cleaning.wait(2)
+        window.poll()
+        assert window.busy and not window.closed and window.last_summary is None
+        assert window._pending_finish is None and window.job.running
+        assert window.native_button.instate(["disabled"])
+        assert window.photo_queue.items[0].status == "succeeded"
+        assert lifecycle == []
+    finally:
+        release_photo.set()
+        release_cleanup.set()
+        window.job.thread.join(timeout=3)
+    pump(tk_window, lambda: window.closed if action == "close" else not window.busy)
+    assert lifecycle == ["closed"]
+    assert window.last_summary == dict(total=1 if action == "complete" else 2, completed=1,
+                                       succeeded=1, failed=0, stopped=action != "complete")
+
+
+@pytest.mark.parametrize("phase", ["setup", "cleanup"])
+def test_context_error_remains_visible_and_does_not_change_photo_counts(tmp_path, tk_window, phase):
+    @contextmanager
+    def context(options):
+        if phase == "setup":
+            raise RuntimeError("session setup failure")
+        yield lambda **kwargs: {"output": "published.jpg"}
+        raise RuntimeError("session cleanup failure")
+
+    window, _ = make_window(tk_window, tmp_path, lambda **kwargs: {"output": "retry.jpg"}, count=1)
+    window.job.processor_context = context
+    window.start("native")
+    pump(tk_window, lambda: not window.busy)
+    assert window.last_summary == dict(total=1, completed=int(phase == "cleanup"),
+                                       succeeded=int(phase == "cleanup"), failed=0, stopped=False)
+    assert len(window.batch_errors) == 1 and window.batch_errors[0]["phase"] == phase
+    assert "队列发生错误" in window.status.get() and "队列错误" in window.current_stage.get()
+    assert f"session {phase} failure" in window.log.get("1.0", "end")
+    assert window.photo_queue.items[0].status == ("succeeded" if phase == "cleanup" else "pending")
+    assert window.native_button.instate(["!disabled"])
+    window.job.processor_context = None
+    if phase == "cleanup":
+        window.add_paths([tmp_path / "new.NEF"])
+    window.start("native")
+    pump(tk_window, lambda: not window.busy)
+    assert window.batch_errors == [] and window.last_summary["succeeded"] == 1
+    assert window.status.get() == "本轮处理完成。"
 
 
 def test_thread_start_failure_restores_ui_and_queue(tmp_path, tk_window, monkeypatch):
