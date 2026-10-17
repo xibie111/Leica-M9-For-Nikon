@@ -28,7 +28,7 @@ from .render import _tele_zoom
 from .session import NefSession, clear_exception_frames
 from .exif import add_nef_exif
 from . import styletrans
-from .uhdr import icc_p3, srgb_to_p3, _seg
+from .uhdr import icc_p3, SRGB_TO_P3, _seg
 
 
 def _sha256(path):
@@ -123,12 +123,39 @@ def _publish(temp, final):
         os.unlink(temp)
 
 
+def _p3_strip(rgb, x, work, mask):
+    """Keep srgb_to_p3's float32 operations, reusing two owned strip buffers."""
+    np.clip(rgb, 0, 1, out=x)
+    np.less_equal(x, 0.04045, out=mask)
+    np.add(x, 0.055, out=work)
+    np.divide(work, 1.055, out=work)
+    np.power(work, 2.4, out=work)
+    np.divide(x, 12.92, out=x)
+    np.copyto(work, x, where=mask)
+    np.matmul(work, SRGB_TO_P3.T, out=x)
+    np.clip(x, 0, 1, out=x)
+    np.less_equal(x, 0.0031308, out=mask)
+    np.power(x, 1 / 2.4, out=work)
+    np.multiply(work, 1.055, out=work)
+    np.subtract(work, 0.055, out=work)
+    np.multiply(x, 12.92, out=x)
+    np.copyto(work, x, where=mask)
+    return work
+
+
 def _encode_jpeg(rgb, quality=95):
-    """Convert to P3 in strips so float intermediates do not scale with full resolution."""
+    """Use bounded P3 scratch buffers and a contiguous BGR JPEG input."""
     pixels = np.empty(rgb.shape, np.uint8)
+    shape = (min(128, rgb.shape[0]), rgb.shape[1], 3)
+    x, work = np.empty(shape, np.float32), np.empty(shape, np.float32)
+    mask = np.empty(shape, bool)
     for y in range(0, rgb.shape[0], 128):
-        pixels[y:y + 128] = (srgb_to_p3(rgb[y:y + 128]) * 255.0 + 0.5).astype(np.uint8)
-    ok, encoded = cv2.imencode(".jpg", pixels[..., ::-1], [cv2.IMWRITE_JPEG_QUALITY, quality])
+        part = rgb[y:y + 128]
+        stripe = _p3_strip(part, x[:len(part)], work[:len(part)], mask[:len(part)])
+        stripe *= 255.0
+        stripe += 0.5
+        pixels[y:y + 128] = stripe[..., ::-1]
+    ok, encoded = cv2.imencode(".jpg", pixels, [cv2.IMWRITE_JPEG_QUALITY, quality])
     if not ok:
         raise RuntimeError("JPEG encode failed")
     data = encoded.tobytes()

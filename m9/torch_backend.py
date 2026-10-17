@@ -21,6 +21,7 @@ DEF_WEIGHTS = os.path.join(_HERE, "..", "re", "weights")
 class TorchBackend:
     def __init__(self, wdir: str, device: str):
         self.wdir, self.device, self.nets = wdir, device, {}
+        self._u8_input_cpu = self._u8_input_gpu = None
 
     @classmethod
     def create(cls, device=None, strict=False):
@@ -101,3 +102,35 @@ class TorchBackend:
                 outs.append(y.permute(0, 2, 3, 1).cpu().numpy())
         y = np.concatenate(outs)
         return np.clip(np.rint(y * 127.5 + 128.0), 0, 255).astype(np.float32)
+
+    def run_u8(self, model: str, x: np.ndarray) -> np.ndarray:
+        """Batch-one byte input/output; keep the existing float32 network arithmetic.
+
+        Only the fixed network canvases use reusable input storage. The NHWC
+        allocation then NCHW view preserves the original channels-last strides.
+        A returned array owns its output storage and is never reused as scratch.
+        """
+        import torch
+        if x.dtype != np.uint8:
+            raise TypeError("run_u8 requires already quantized uint8 input")
+        shape = (1, 544, 544, 6) if model == "colorfix" else (1, 864, 1120, 4)
+        if self.device != "cuda" or x.shape != shape:
+            return self.run(model, x.astype(np.float32)).astype(np.uint8)
+        net = self._net(model)
+        if self._u8_input_cpu is None or self._u8_input_cpu.shape != shape:
+            self._u8_input_cpu = np.empty(shape, np.float32)
+            self._u8_input_gpu = torch.empty(shape, dtype=torch.float32, device=self.device)
+        # rint/clip are identities for uint8. Match the original two FP32 ops.
+        np.copyto(self._u8_input_cpu, x)
+        np.subtract(self._u8_input_cpu, np.float32(128), out=self._u8_input_cpu)
+        np.divide(self._u8_input_cpu, np.float32(127.5), out=self._u8_input_cpu)
+        with torch.inference_mode():
+            self._u8_input_gpu.copy_(torch.from_numpy(self._u8_input_cpu))
+            t = self._u8_input_gpu.permute(0, 3, 1, 2)
+            y = net(t) if model == "colorfix" else net(t[:, :3], t[:, 3:4])
+            if not torch.isfinite(y).all().item():
+                raise RuntimeError(f"{model} network output contains NaN or infinity")
+            # Separate multiply/add and ties-to-even round, as in NumPy run().
+            packed = y.mul(127.5)
+            packed.add_(128.0).round_().clamp_(0, 255)
+            return packed.to(torch.uint8).permute(0, 2, 3, 1).cpu().numpy()

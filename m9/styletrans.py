@@ -83,11 +83,11 @@ class StyleTrans:
         mp = cv2.copyMakeBorder(mask, PAD, PAD, PAD, PAD, cv2.BORDER_CONSTANT, value=0)
         # graph input is UFIXED8 (scale 1/127.5, offset -128): raw pixels, the (x-128)/127.5
         # normalisation of the library lives in the quantisation parameters
-        inp = np.concatenate([rgbp, mp[..., None]], -1).astype(np.float32)
+        inp = np.concatenate([rgbp, mp[..., None]], -1)
         model = choose_model(lux_index, cct)
         if progress:
             progress("style_network", f"StyleTrans {model}: {NW}x{NH} preview")
-        out = self.be.run(model, inp[None])[0]              # 864x1120x3, 0..255
+        out = self._run_bytes(model, inp[None])[0]          # 864x1120x3, 0..255
         if out.shape != (NH + 2 * PAD, NW + 2 * PAD, 3):
             raise RuntimeError(f"StyleTrans returned unexpected shape {out.shape}")
         if not np.isfinite(out).all():
@@ -109,26 +109,34 @@ class StyleTrans:
         res = res.astype(np.float32) / 255.0
         return np.rot90(res, 1) if portrait else res
 
+    def _run_bytes(self, model, pixels):
+        run_u8 = getattr(self.be, "run_u8", None)
+        if run_u8 is not None and pixels.dtype == np.uint8:
+            return run_u8(model, pixels)
+        return self.be.run(model, pixels.astype(np.float32))
+
     def _colorfix(self, orig, styled, progress=None):
         H, W = orig.shape[:2]
         out = np.empty_like(orig)
         total = ((H + STEP - 1) // STEP) * ((W + STEP - 1) // STEP)
         done = 0
+        t = np.empty((TILE, TILE, 6), np.uint8)
         for y in range(0, H, STEP):
             for x in range(0, W, STEP):
                 ys, xs = max(y - MARGIN, 0), max(x - MARGIN, 0)
                 ye, xe = min(y + STEP + MARGIN, H), min(x + STEP + MARGIN, W)
                 oy, ox = MARGIN - (y - ys), MARGIN - (x - xs)
-                t = np.zeros((TILE, TILE, 6), np.uint8)
+                t.fill(0)
                 t[oy:oy + ye - ys, ox:ox + xe - xs, :3] = styled[ys:ye, xs:xe]
                 t[oy:oy + ye - ys, ox:ox + xe - xs, 3:] = orig[ys:ye, xs:xe]
-                r = self.be.run("colorfix", t[None].astype(np.float32))
+                r = self._run_bytes("colorfix", t[None])
                 if r.shape != (1, TILE, TILE, 3):
                     raise RuntimeError(f"Colorfix returned unexpected shape {r.shape}")
                 if not np.isfinite(r).all():
                     raise RuntimeError("Colorfix network output contains NaN or infinity")
                 h, w = min(STEP, H - y), min(STEP, W - x)
-                out[y:y + h, x:x + w] = np.clip(r[0, MARGIN:MARGIN + h, MARGIN:MARGIN + w], 0, 255)
+                center = r[0, MARGIN:MARGIN + h, MARGIN:MARGIN + w]
+                out[y:y + h, x:x + w] = center if r.dtype == np.uint8 else np.clip(center, 0, 255)
                 done += 1
             if progress:
                 progress("colorfix", f"Colorfix {done}/{total} tiles ({W}x{H})")
