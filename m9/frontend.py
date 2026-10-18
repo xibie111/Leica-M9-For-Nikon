@@ -391,11 +391,13 @@ def b2y_from_raw(lin: np.ndarray, cam2srgb: np.ndarray, info: RawInfo,
 
     from concurrent.futures import ThreadPoolExecutor
     n = os.cpu_count() or 4
-    bounds = np.linspace(0, lin.shape[0], 2 * n + 1).astype(int)
+    # Do not submit empty strips or start more workers than useful tasks.
+    tasks = min(2 * n, lin.shape[0])
+    bounds = np.linspace(0, lin.shape[0], tasks + 1).astype(int)
     out = np.empty(lin.shape, np.float32)
 
     def run(i):
         out[bounds[i]:bounds[i + 1]] = strip(lin[bounds[i]:bounds[i + 1]])
-    with ThreadPoolExecutor(n) as ex:
-        list(ex.map(run, range(2 * n)))
+    with ThreadPoolExecutor(min(n, tasks)) as ex:
+        list(ex.map(run, range(tasks)))
     return FrontEndResult(out, ae, info, li, k, lin, cam2srgb, camera)
