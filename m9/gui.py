@@ -12,11 +12,20 @@ from .batch import BatchJob, BatchOptions, PhotoQueue
 
 
 @contextmanager
-def _nef_processor_context(options):
-    from .nef import process_nef
+def _nef_processor_context(options, *, _plan=None):
+    from .nef import process_nef, _NATIVE_QUEUE_PROCESSOR
     from .session import NefSession
     with NefSession(options.device) as session:
-        yield partial(process_nef, session=session)
+        if (_plan is not None and len(_plan.items) > 1 and options.method == "native"
+                and process_nef is _NATIVE_QUEUE_PROCESSOR and session.device == "cuda"
+                and not _plan.is_stopping()):
+            from .native_queue import _native_processor_context
+            with _native_processor_context(process_nef, session, _plan) as processor:
+                yield processor
+        else:
+            if _plan is not None:
+                _plan.receipt.update(enabled=False, reason="single, CPU, DNG or replaced core")
+            yield partial(process_nef, session=session)
 
 
 class NefWindow:
@@ -26,7 +35,8 @@ class NefWindow:
 
         self.root = root
         self.photo_queue = PhotoQueue()
-        self.job = BatchJob(processor, processor_context=_nef_processor_context if processor is None else None)
+        self.job = BatchJob(processor, processor_context=_nef_processor_context if processor is None else None,
+                            _plan_context=_nef_processor_context if processor is None else None)
         self.busy = self.closed = self.close_requested = False
         self.close_dialog = None
         self.last_summary = self.run_options = self._pending_finish = None
@@ -316,7 +326,11 @@ class NefWindow:
             elif kind == "finished":
                 self._pending_finish = payload
         # A terminal event can arrive just before its worker returns. Both must finish.
-        if self._pending_finish is not None and not self.job.running:
+        if self.job._cleanup_unsafe:
+            self.status.set("原生预解码资源清理未完成；队列已锁定，详细信息见日志。")
+            self.current_stage.set("当前阶段：资源清理失败")
+            self.stop_button.configure(state="disabled")
+        if self._pending_finish is not None and not self.job.running and not self.job._cleanup_unsafe:
             self._finish(self._pending_finish)
             self._pending_finish = None
         if not self.closed:

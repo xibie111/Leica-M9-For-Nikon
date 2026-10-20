@@ -118,6 +118,116 @@ def test_default_gui_processor_uses_shared_core_without_camera_override(tmp_path
     assert "tele" in window.log.get("1.0", "end")
 
 
+@pytest.mark.parametrize("action", ["stop", "close", "unsafe", "construction"])
+def test_builtin_native_plan_cleanup_precedes_terminal_ui(tmp_path, tk_window, monkeypatch, action):
+    from m9 import nef, session, native_queue
+    from m9.native_prefetch import NativePrefetchCleanupError
+    gate, release_photo = threading.Event(), threading.Event()
+    cleaning, release_cleanup = threading.Event(), threading.Event()
+    lifecycle, offers = [], []
+
+    class Session:
+        device = "cuda"
+
+        def __init__(self, device):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            lifecycle.append("session_exit")
+
+    class Manager:
+        def __init__(self):
+            if action == "construction":
+                cleaning.set()  # Represents ownership acquired before __init__ returns.
+                assert release_cleanup.wait(3)
+                lifecycle.append("helper_cleanup_failed")
+                raise NativePrefetchCleanupError("partial constructor cleanup unresolved")
+
+        @property
+        def diagnostics(self):
+            return {"events": list(lifecycle)}
+
+        def offer(self, request, path):
+            offers.append((request, path))
+            return True
+
+        def take_nowait(self, request, path):
+            pytest.fail("Pending second photo must not be consumed after stop")
+
+        def discard(self, request):
+            pass
+
+        def close(self):
+            cleaning.set()
+            assert release_cleanup.wait(3)
+            if action == "unsafe":
+                lifecycle.append("helper_cleanup_failed")
+                raise NativePrefetchCleanupError("reader/slot cleanup unresolved")
+            lifecycle.append("helper_closed")
+            return {"closed": True, "reader_closed": True, "slot_closed": True, "cleanup_safe": True}
+
+    def core(input_path, output_dir, *, progress, _native_decode, **kwargs):
+        assert _native_decode(input_path) is None
+        progress("style_network", "GPU gate")
+        gate.set()
+        assert release_photo.wait(3)
+        return {"output": str(output_dir / "first.jpg")}
+
+    monkeypatch.setattr(nef, "process_nef", core)
+    monkeypatch.setattr(nef, "_NATIVE_QUEUE_PROCESSOR", core)  # Explicitly exercise built-in private opt-in.
+    monkeypatch.setattr(session, "NefSession", Session)
+    monkeypatch.setattr(native_queue, "_make_lookahead", Manager)
+    window = NefWindow(tk_window)
+    window.add_paths([tmp_path / "first.NEF", tmp_path / "pending.NEF"])
+    window.output_dir.set(str(tmp_path / "output"))
+    window.native_button.invoke()
+    try:
+        if action == "construction":
+            assert cleaning.wait(3)
+            window.close()
+            window.close_finish_button.invoke()
+        else:
+            assert gate.wait(3) and len(offers) == 1
+            if action == "close":
+                window.close()
+                window.close_finish_button.invoke()
+            else:
+                window.request_stop()
+            release_photo.set()
+            assert cleaning.wait(3)
+        window.poll()
+        assert window.busy and not window.closed and window.last_summary is None
+        assert window.native_button.instate(["disabled"]) and window.job.running
+        expected = ["pending", "pending"] if action == "construction" else ["succeeded", "pending"]
+        assert [item.status for item in window.photo_queue.items] == expected
+        assert lifecycle == []
+    finally:
+        release_photo.set()
+        release_cleanup.set()
+        window.job.thread.join(3)
+    if action in ("unsafe", "construction"):
+        pump(tk_window, lambda: not window.job.running)
+        window.poll()
+        assert window.busy and not window.closed and window.last_summary is None
+        assert window.job._cleanup_unsafe and window.batch_errors
+        assert "资源清理" in window.status.get()
+        window.close()
+        window.close_finish_button.invoke()
+        window.poll()
+        assert window.busy and not window.closed and window.close_requested
+        with pytest.raises(RuntimeError, match="清理未完成"):
+            window.job.start(window.photo_queue.pending_items, window.run_options)
+        assert lifecycle == ["helper_cleanup_failed", "session_exit"]
+        return
+    pump(tk_window, lambda: window.closed if action == "close" else not window.busy)
+    assert lifecycle == ["helper_closed", "session_exit"]
+    assert window.last_summary == dict(total=2, completed=1, succeeded=1, failed=0, stopped=True)
+    assert window.job._plan_receipt["close"]["reader_closed"]
+
+
 def test_photo_and_current_folder_import_remove_and_clear(tmp_path, tk_window, monkeypatch):
     from tkinter import filedialog
     folder = tmp_path / "照片 目录"

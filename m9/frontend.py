@@ -172,6 +172,15 @@ def _cm_at(tags: dict, cct: float) -> np.ndarray:
     return w * cm1 + (1 - w) * cm2
 
 
+def _normalize_raw_rgb(rgb):
+    """Normalize native uint16 camera pixels with one owned float32 output."""
+    if not isinstance(rgb, np.ndarray) or rgb.ndim == 0 or rgb.dtype != np.dtype(np.uint16):
+        return rgb.astype(np.float32) / 65535.0
+    out = np.empty_like(rgb, dtype=np.float32, order="K")
+    np.divide(rgb, np.float32(65535), out=out, dtype=np.float32)
+    return out
+
+
 def load_dng(path: str, half: bool = False) -> tuple[np.ndarray, np.ndarray, RawInfo]:
     """Return (linear camera RGB white-balanced to the M9 locked D50 point, 1.0 = clip;
     that camera space -> linear sRGB; info with the *scene* CCT from AsShotNeutral).
@@ -202,7 +211,7 @@ def load_dng(path: str, half: bool = False) -> tuple[np.ndarray, np.ndarray, Raw
             gamma=(1, 1), no_auto_bright=True, output_bps=16, user_wb=[mul[0], mul[1], mul[2], mul[1]],
             output_color=rawpy.ColorSpace.raw, demosaic_algorithm=rawpy.DemosaicAlgorithm.AHD,
             half_size=half, highlight_mode=rawpy.HighlightMode.Clip)
-    rgb = rgb.astype(np.float32) / 65535.0
+    rgb = _normalize_raw_rgb(rgb)
 
     info.exposure_time = _num(tags.get("ExposureTime"))
     info.fnumber = _num(tags.get("FNumber"))

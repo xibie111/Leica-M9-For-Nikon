@@ -163,7 +163,7 @@ def _encode_jpeg(rgb, quality=95):
 
 
 def process_nef(input_path, output_dir, method="dng", resolution="original", device="auto",
-                converter=None, progress=None, write_json=False, *, session=None):
+                converter=None, progress=None, write_json=False, *, session=None, _native_decode=None):
     """Return the processing record; optionally save it beside the JPEG with write_json=True."""
     context = NefSession(resolve_device(device)) if session is None else nullcontext(session)
     active = None
@@ -176,7 +176,8 @@ def process_nef(input_path, output_dir, method="dng", resolution="original", dev
                 raise ValueError("Invalid method or resolution")
             if device != "auto" and resolve_device(device) != active.device:
                 raise ValueError("Requested device differs from the fixed NEF session device")
-            report = _process_nef(source, output_dir, method, resolution, device, converter, progress, write_json, active)
+            report = _process_nef(source, output_dir, method, resolution, device, converter, progress, write_json,
+                                  active, _native_decode=_native_decode)
         if progress:
             progress("done", f"完成：{report['output']}")
         return report
@@ -190,7 +191,11 @@ def process_nef(input_path, output_dir, method="dng", resolution="original", dev
         raise
 
 
-def _process_nef(source, output_dir, method, resolution, device, converter, progress, write_json, session):
+_NATIVE_QUEUE_PROCESSOR = process_nef
+
+
+def _process_nef(source, output_dir, method, resolution, device, converter, progress, write_json, session,
+                 _native_decode=None):
     selected = session.device
     started = time.perf_counter()
     timings = {}
@@ -219,7 +224,11 @@ def _process_nef(source, output_dir, method, resolution, device, converter, prog
         with phase("models", f"{model_message}，设备 {selected}"):
             st = session.get_model()
         with phase("raw", "转换并解码 RAW" if method == "dng" else "直接解码 NEF"):
-            linear, cam2srgb, info = load_nef(source, method=method, converter=converter, progress=notify)
+            decoded = _native_decode(source) if method == "native" and _native_decode is not None else None
+            if decoded is None:
+                decoded = load_nef(source, method=method, converter=converter, progress=notify)
+            linear, cam2srgb, info = decoded
+            del decoded
             zoom = _tele_zoom(str(source))
         source_size = [int(linear.shape[1]), int(linear.shape[0])]
         with phase("frontend", "tele M9 测光与色彩处理"):

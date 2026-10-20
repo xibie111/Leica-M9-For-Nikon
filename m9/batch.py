@@ -1,12 +1,14 @@
 """Path-based photo queue and serial worker; UI state changes only on the UI thread."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
 import queue
 import threading
+import time
 import traceback
 from uuid import uuid4
 
@@ -93,10 +95,24 @@ class BatchOptions:
     write_json: bool = False
 
 
+@dataclass
+class _BatchPlan:
+    items: tuple[tuple[str, Path], ...]
+    offer_next: Callable
+    is_stopping: Callable[[], bool]
+    ordinal: int = 0
+    current_id: str | None = None
+    receipt: dict = field(default_factory=dict)
+    cleanup_safe: bool = True
+
+
 class BatchJob:
-    def __init__(self, processor, processor_context=None):
+    def __init__(self, processor, processor_context=None, *, _plan_context=None):
         self.processor = processor
         self.processor_context = processor_context
+        self._plan_context = _plan_context
+        self._plan_receipt = {}
+        self._cleanup_unsafe = False
         self.events = queue.Queue()
         self.thread = None
         self._boundary = threading.Lock()
@@ -108,6 +124,8 @@ class BatchJob:
 
     def start(self, items, options: BatchOptions):
         with self._boundary:
+            if self._cleanup_unsafe:
+                raise RuntimeError("原生预解码资源清理未完成；此队列已锁定，不能开始新一轮。")
             if self.running:
                 raise RuntimeError("已有队列正在处理，请等待完成。")
             snapshot = tuple((str(item.id), Path(item.path).expanduser().resolve())
@@ -117,6 +135,7 @@ class BatchJob:
             settings = BatchOptions(options.method, Path(options.output_dir).expanduser().resolve(),
                                     options.resolution, options.device, options.write_json)
             self._stop_requested = False
+            self._plan_receipt = {}
             self.thread = threading.Thread(target=self._run, args=(snapshot, settings), name="m9-nef-batch-worker")
             try:
                 self.thread.start()
@@ -133,8 +152,35 @@ class BatchJob:
         completed = succeeded = failed = 0
         active_item_id = None
         phase = "setup"
+        plan = None
+        batch_error_emitted = False
         try:
-            context = self.processor_context(options) if self.processor_context is not None else nullcontext(self.processor)
+            factory = self.processor_context
+            if factory is not None and factory is self._plan_context:
+                def is_stopping():
+                    with self._boundary:
+                        return self._stop_requested
+
+                def offer_next(offer):
+                    # Reserve before stop, but never hold the UI boundary during IPC/cleanup.
+                    with self._boundary:
+                        if self._stop_requested or not plan.ordinal or plan.ordinal >= total:
+                            return False
+                        item_id, path = plan.items[plan.ordinal]
+                        admission = {"id": item_id, "ordinal": plan.ordinal + 1,
+                                     "reserved_perf_ns": time.perf_counter_ns(), "cancelled_before_offer": False}
+                        plan.receipt.setdefault("admissions", []).append(admission)
+                    if is_stopping():
+                        admission["cancelled_before_offer"] = True
+                        return False
+                    # A stop after reservation may leave this admitted operation in flight.
+                    return offer(item_id, path)
+
+                plan = _BatchPlan(snapshot, offer_next, is_stopping)
+                self._plan_receipt = plan.receipt
+                context = factory(options, _plan=plan)
+            else:
+                context = factory(options) if factory is not None else nullcontext(self.processor)
             with context as processor:
                 if not callable(processor):
                     raise TypeError("队列处理上下文必须返回可调用的处理器。")
@@ -144,6 +190,8 @@ class BatchJob:
                     with self._boundary:
                         if self._stop_requested:
                             break
+                        if plan is not None:
+                            plan.ordinal, plan.current_id = ordinal, item_id
                         self.events.put(("item_started", {"id": item_id, "input_path": path,
                                                           "ordinal": ordinal, "total": total}))
                         active_item_id = item_id
@@ -163,6 +211,8 @@ class BatchJob:
                         self.events.put(("item_done", {"id": item_id, "report": report}))
                     completed += 1
                     active_item_id = None
+                    if plan is not None:
+                        plan.current_id = None
                 phase = "cleanup"
         except BaseException as exc:
             details = traceback.format_exc()
@@ -172,7 +222,15 @@ class BatchJob:
                 self.events.put(("item_error", {"id": active_item_id, "message": str(exc), "traceback": details}))
             self.events.put(("batch_error", {"phase": phase, "message": str(exc),
                                              "traceback": details}))
+            batch_error_emitted = True
         finally:
             with self._boundary:
-                self.events.put(("finished", {"total": total, "completed": completed, "succeeded": succeeded,
-                                              "failed": failed, "stopped": self._stop_requested and completed < total}))
+                if plan is not None and not plan.cleanup_safe:
+                    self._cleanup_unsafe = True
+                    plan.receipt["cleanup_safe"] = False
+                    if not batch_error_emitted:
+                        self.events.put(("batch_error", {"phase": "cleanup", "message": "原生预解码资源清理未完成；队列已锁定。",
+                                                         "traceback": "Native lookahead ownership cleanup was not proven safe."}))
+                else:
+                    self.events.put(("finished", {"total": total, "completed": completed, "succeeded": succeeded,
+                                                  "failed": failed, "stopped": self._stop_requested and completed < total}))

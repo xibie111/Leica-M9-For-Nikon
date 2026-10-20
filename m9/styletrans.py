@@ -35,6 +35,22 @@ def _pad_center(img, w, h, border):
     return cv2.copyMakeBorder(img, t, dh - t, l, dw - l, border), (t, l)
 
 
+def _quantize_style_input(x):
+    """Quantize RGB with an owned output and at most 128 rows of FP32 scratch."""
+    if x.dtype != np.float32 or 1 in x.shape:
+        return np.clip(x * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    out = np.empty_like(x, dtype=np.uint8, order="K")
+    scratch = np.empty_like(x[:min(128, x.shape[0])], dtype=np.float32, order="K")
+    for row in range(0, x.shape[0], 128):
+        count = min(128, x.shape[0] - row)
+        work = scratch[:count]
+        np.multiply(x[row:row + count], np.float32(255.0), out=work)
+        np.add(work, np.float32(0.5), out=work)
+        np.clip(work, 0, 255, out=work)
+        np.copyto(out[row:row + count], work, casting="unsafe")
+    return out
+
+
 class StyleTrans:
     def __init__(self, backend, humanseg=None):
         self.be = backend
@@ -59,7 +75,7 @@ class StyleTrans:
             raise ValueError("mask must have the same height and width as rgb")
         portrait = rgb.shape[0] > rgb.shape[1]
         x = np.rot90(rgb, -1) if portrait else rgb          # sensor (landscape) orientation
-        x8 = np.clip(x * 255.0 + 0.5, 0, 255).astype(np.uint8)
+        x8 = _quantize_style_input(x)
         full = x8
         h0, w0 = x8.shape[:2]
         if mask is not None:

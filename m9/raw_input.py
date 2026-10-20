@@ -315,7 +315,7 @@ def _native_xyz2cam(path: Path, info: RawInfo, matrix, progress=None):
     return matrix[:3]
 
 
-def _native_nef(path: Path, info: RawInfo, progress=None):
+def _native_nef_u16(path: Path, info: RawInfo, progress=None):
     _report(progress, "decode", "LibRaw native NEF: full-size demosaic and locked D50 white balance")
     with rawpy.imread(str(path)) as raw:
         geometry = frontend.raw_geometry(raw)
@@ -345,14 +345,15 @@ def _native_nef(path: Path, info: RawInfo, progress=None):
                       source_camera_rectangle=[photo_geometry[k] for k in ("left_margin", "top_margin", "width", "height")],
                       cct_source="approximate: LibRaw single matrix + as-shot neutral (McCamy)",
                       cct_is_approximate=True, libraw_version=list(rawpy.libraw_version), rawpy_version=rawpy.__version__)
-    return rgb.astype(np.float32) / 65535.0, cam2srgb, info
+    return rgb, cam2srgb, info
 
 
-def load_nef(path: str | Path, method: str = "dng", converter: str | Path | None = None, progress=None):
-    """Return linear D50 camera RGB, camera-to-sRGB, RawInfo; never switch routes."""
-    path = Path(path).expanduser().resolve()
-    if method not in ("dng", "native"):
-        raise ValueError("method must be 'dng' or 'native'")
+def _native_nef(path: Path, info: RawInfo, progress=None):
+    rgb, cam2srgb, info = _native_nef_u16(path, info, progress)
+    return frontend._normalize_raw_rgb(rgb), cam2srgb, info
+
+
+def _read_nef_source(path: Path, progress=None):
     if path.suffix.lower() != ".nef":
         raise ValueError("Input must be a Nikon .NEF file")
     if not path.is_file() or path.stat().st_size == 0:
@@ -364,6 +365,22 @@ def load_nef(path: str | Path, method: str = "dng", converter: str | Path | None
         raise ValueError(f"Cannot read NEF metadata: {exc}") from exc
     if "NIKON" not in source_info.make.upper():
         raise ValueError(f"Input does not identify a Nikon camera: {source_info.make!r}")
+    return source_info
+
+
+def load_native_nef_u16(path: str | Path, progress=None):
+    """Decode native camera RGB16; the caller retains the original normalization step."""
+    path = Path(path).expanduser().resolve()
+    source_info = _read_nef_source(path, progress)
+    return _native_nef_u16(path, source_info, progress)
+
+
+def load_nef(path: str | Path, method: str = "dng", converter: str | Path | None = None, progress=None):
+    """Return linear D50 camera RGB, camera-to-sRGB, RawInfo; never switch routes."""
+    path = Path(path).expanduser().resolve()
+    if method not in ("dng", "native"):
+        raise ValueError("method must be 'dng' or 'native'")
+    source_info = _read_nef_source(path, progress)
     if method == "native":
         return _native_nef(path, source_info, progress)
     # Inspect LibRaw's visible active area before conversion, without rendering RGB.
