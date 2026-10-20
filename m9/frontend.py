@@ -307,6 +307,12 @@ def tdl_apply(rgb: np.ndarray, hue_tab: np.ndarray, sat_tab: np.ndarray) -> np.n
     """2D LUT: HSV hue/sat grid, 24 hue knots (15 deg) x 16 sat knots."""
     import cv2
     x = np.clip(rgb, 0, None).astype(np.float32)
+    return _tdl_apply_prepared(x, hue_tab, sat_tab)
+
+
+def _tdl_apply_prepared(x, hue_tab, sat_tab):
+    """Original TDL arithmetic for an internally prepared float32 strip."""
+    import cv2
     v = x.max(-1)
     scale = np.maximum(v, 1e-6)
     hsv = cv2.cvtColor(x / scale[..., None], cv2.COLOR_RGB2HSV)
@@ -327,6 +333,9 @@ def tdl_apply(rgb: np.ndarray, hue_tab: np.ndarray, sat_tab: np.ndarray) -> np.n
     hsv[..., 1] = np.clip(s * (1.0 + bil(sat_tab)), 0, 1)
     out = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB) * scale[..., None]
     return out
+
+
+_tdl_apply_default = tdl_apply
 
 
 def gamma_apply(rgb_lin: np.ndarray, lut: np.ndarray) -> np.ndarray:
@@ -394,7 +403,12 @@ def b2y_from_raw(lin: np.ndarray, cam2srgb: np.ndarray, info: RawInfo,
     def strip(x):                      # per-pixel IPE chain; strips run in parallel threads
         x = ltm_global(x * gain, ae.adrc_gain, gtm)
         x = np.clip(x @ ccm, 0, None)
-        x = tdl_apply(x, hue_tab, sat_tab)
+        if (tdl_apply is _tdl_apply_default and type(x) is np.ndarray
+                and x.dtype == np.float32 and x.ndim == 3 and x.shape[2] == 3
+                and x.size and x.flags.c_contiguous):
+            x = _tdl_apply_prepared(x, hue_tab, sat_tab)
+        else:
+            x = tdl_apply(x, hue_tab, sat_tab)
         x = gamma_apply(x, glut)
         return np.clip(cv_apply(x, cvp), 0, 1)
 

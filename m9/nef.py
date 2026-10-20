@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager, nullcontext
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
@@ -143,18 +144,39 @@ def _p3_strip(rgb, x, work, mask):
     return work
 
 
+_p3_strip_default = _p3_strip
+
+
 def _encode_jpeg(rgb, quality=95):
     """Use bounded P3 scratch buffers and a contiguous BGR JPEG input."""
     pixels = np.empty(rgb.shape, np.uint8)
     shape = (min(128, rgb.shape[0]), rgb.shape[1], 3)
-    x, work = np.empty(shape, np.float32), np.empty(shape, np.float32)
-    mask = np.empty(shape, bool)
-    for y in range(0, rgb.shape[0], 128):
-        part = rgb[y:y + 128]
-        stripe = _p3_strip(part, x[:len(part)], work[:len(part)], mask[:len(part)])
-        stripe *= 255.0
-        stripe += 0.5
-        pixels[y:y + 128] = stripe[..., ::-1]
+    def convert(start, step):
+        x, work = np.empty(shape, np.float32), np.empty(shape, np.float32)
+        mask = np.empty(shape, bool)
+        for y in range(start, rgb.shape[0], step):
+            part = rgb[y:y + 128]
+            stripe = _p3_strip(part, x[:len(part)], work[:len(part)], mask[:len(part)])
+            stripe *= 255.0
+            stripe += 0.5
+            pixels[y:y + 128] = stripe[..., ::-1]
+
+    if (_p3_strip is _p3_strip_default and type(rgb) is np.ndarray
+            and rgb.dtype == np.float32 and rgb.ndim == 3 and rgb.shape[2] == 3
+            and rgb.shape[0] >= 512 and rgb.size and rgb.flags.c_contiguous
+            and type(quality) is int and quality == 95
+            and np.geterr() == dict(divide="warn", over="warn", under="ignore", invalid="warn")
+            and np.geterrcall() is None and np.isfinite(rgb).all()):
+        def parallel_convert(start):
+            with np.errstate(divide="warn", over="warn", under="ignore", invalid="warn"):
+                convert(start, 512)
+
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="m9-p3") as pool:
+            futures = [pool.submit(parallel_convert, i * 128) for i in range(4)]
+            for future in futures:
+                future.result()
+    else:
+        convert(0, 128)
     ok, encoded = cv2.imencode(".jpg", pixels, [cv2.IMWRITE_JPEG_QUALITY, quality])
     if not ok:
         raise RuntimeError("JPEG encode failed")
