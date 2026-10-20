@@ -262,6 +262,112 @@ def _cvstyle_torch(torch, dev, rgb, p, current_time, chunk_rows=None):
     return out
 
 
+# Experimental transport keeps the original shaders and their independent row budgets.
+_LUT_CHUNK_PIXELS = 1 << 22
+_VIGNETTE_CHUNK_PIXELS = 1 << 20
+
+
+def _lut_rows_tensor(torch, dev, rgb, tf, n):
+    x = torch.from_numpy(np.ascontiguousarray(rgb, np.float32)).to(dev).clamp(0, 1) * (n - 1)
+    i0 = torch.clamp(torch.floor(x).to(torch.int64), max=n - 2)
+    f = x - i0
+    acc = torch.zeros_like(x)
+    for dr in (0, 1):
+        wr = f[..., 0:1] if dr else 1 - f[..., 0:1]
+        for dg in (0, 1):
+            wg = f[..., 1:2] if dg else 1 - f[..., 1:2]
+            for db in (0, 1):
+                wb = f[..., 2:3] if db else 1 - f[..., 2:3]
+                idx = ((i0[..., 0] + dr) * n + (i0[..., 1] + dg)) * n + (i0[..., 2] + db)
+                acc = acc + wr * wg * wb * tf[idx]
+    return acc
+
+
+def _cvstyle_tensor_rows(torch, dev, x, p, current_time, y0, h):
+    """The existing float32 shader, receiving its RGB rows directly on the device."""
+    rows, w = x.shape[:2]
+    start, end, coord_scale, value_scale, k, b, v, t = (float(value) for value in p)
+    ys = torch.arange(y0, y0 + rows, device=dev, dtype=torch.float32)[:, None]
+    xs = torch.arange(w, device=dev, dtype=torch.float32)[None, :]
+    uvx = ((xs + 0.5) / w - 0.5) * w / h + 0.5
+    uvy = (ys + 0.5) / h
+    ux, uy = uvx - 0.5, uvy - 0.5
+    dist = torch.sqrt(ux * ux + uy * uy)
+    tt = current_time * (30.0 / 60.0) / 100.0
+    nx, ny = ux - 0.5, uy - 0.5
+
+    def nrand(u, vv):
+        s = torch.sin(u * 12.9898 + vv * 78.233) * 43758.5453
+        return torch.remainder(s - torch.trunc(s), 1.0)
+
+    rnd = sum(nrand(nx + c * tt, ny + c * tt) for c in (0.07, 0.11, 0.13, 0.17, 0.19, 0.23)) / 6.0
+    dist = dist + 0.004 * rnd * 10.0 * coord_scale
+    s = torch.clamp((dist - start) / (end - start), 0.0, 1.0)
+    vig = s * s * (3.0 - 2.0 * s)
+    r, g, bb = x[..., 0], x[..., 1], x[..., 2]
+    L = 0.499 * r + 0.387 * g + 0.114 * bb
+    Y = 0.299 * r + 0.587 * g + 0.114 * bb
+    pf = v / (1.0 + torch.exp(k * (-L + b))) + t
+    vig = ((1.0 - pf) * vig + pf) * value_scale
+    return x + (Y * (vig - 1.0))[..., None]
+
+
+def _lut_cvstyle_torch(torch, dev, rgb, lut, p, current_time=0.0, trace=None):
+    """Avoid the intermediate host round trip, retaining both original strip grids.
+
+    A cloned carry owns fewer than one vignette strip; a view would retain an
+    entire previous LUT allocation. Only completed vignette rows return to CPU.
+    ``trace`` is an internal experiment hook, called with (stage, y0, rows, h).
+    """
+    h, w = rgb.shape[:2]
+    lut_step = max(1, _LUT_CHUNK_PIXELS // max(1, w))
+    vig_step = max(1, _VIGNETTE_CHUNK_PIXELS // max(1, w))
+    n = lut.shape[0]
+    table = torch.from_numpy(np.ascontiguousarray((lut.astype(np.float32) / 255.0)[..., ::-1])).to(dev)
+    tf = table.reshape(-1, 3)
+    out = np.empty(rgb.shape, np.float32)
+    pending = None
+    next_y = 0
+
+    def emit(rows):
+        nonlocal next_y
+        count = rows.shape[0]
+        if trace is not None:
+            trace("vignette", next_y, count, h)
+        result = _cvstyle_tensor_rows(torch, dev, rows, p, current_time, next_y, h)
+        out[next_y:next_y + count] = result.cpu().numpy()
+        next_y += count
+
+    with torch.inference_mode():
+        for y in range(0, h, lut_step):
+            source = rgb[y:y + lut_step]
+            if trace is not None:
+                trace("lut", y, len(source), h)
+            block = _lut_rows_tensor(torch, dev, source, tf, n)
+            last = y + len(source) == h
+            offset = 0
+            if pending is not None:
+                take = min(vig_step - pending.shape[0], block.shape[0])
+                joined = torch.cat((pending, block[:take]), dim=0)
+                pending = None
+                offset = take
+                if joined.shape[0] == vig_step or last:
+                    emit(joined)
+                else:
+                    pending = joined
+                del joined
+            while offset + vig_step <= block.shape[0]:
+                emit(block[offset:offset + vig_step])
+                offset += vig_step
+            if offset < block.shape[0]:
+                if last:
+                    emit(block[offset:])
+                else:
+                    pending = block[offset:].clone()
+            del block
+    return out
+
+
 def _nrand(u, v):
     return np.modf(np.sin(u * 12.9898 + v * 78.233) * 43758.5453)[0] % 1.0
 
@@ -313,6 +419,8 @@ class LeicaFilter:
     fallback ("use pre param for M9"): preview parameters, which bake in an
     approximation of the StyleTrans look."""
 
+    _gpu_transport = True
+
     def __init__(self, assets: str = ASSETS, device=None):
         self.device = resolve_device(device)
         self.snapshot = LeicaFilterParams(os.path.join(assets, "leica_filter_param_m9_snapshot.bin"))
@@ -321,6 +429,11 @@ class LeicaFilter:
     def __call__(self, rgb: np.ndarray, lux_index: float, cct: float, zoom: float = 1.0,
                  scene: str = "common", style_trans_on: bool = True, shading: bool = True) -> np.ndarray:
         p = self.snapshot if style_trans_on else self.preview
+        if self._gpu_transport and self.device == "cuda" and shading:
+            torch, dev = _torch(self.device)
+            out = _lut_cvstyle_torch(torch, dev, rgb, p.lut(scene, lux_index, cct),
+                                     p.shading_params(zoom, lux_index, cct))
+            return np.clip(out, 0.0, 1.0)
         out = lut_apply(rgb, p.lut(scene, lux_index, cct), device=self.device)
         if shading:
             out = cvstyle_apply(out, p.shading_params(zoom, lux_index, cct), device=self.device)
