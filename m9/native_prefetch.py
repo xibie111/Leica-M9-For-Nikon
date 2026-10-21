@@ -17,6 +17,7 @@ SLOT_BYTES = 512 * 1024**2
 ENTER_RAM = 4 * 1024**3
 OFFER_RAM = 3 * 1024**3
 CLOSE_SECONDS = 8.0
+FIRST_RAW_WAIT_SECONDS = 5.0
 
 
 class NativePrefetchCleanupError(BaseException):
@@ -30,6 +31,7 @@ class NativeLookahead:
         self.owner = secrets.token_hex(16)
         self._token = secrets.token_hex(32)
         self._lock = threading.RLock()
+        self._changed = threading.Condition(self._lock)
         self._close_lock = threading.Lock()
         self._consume_lock = threading.Lock()
         self._send_lock = threading.Lock()
@@ -37,6 +39,7 @@ class NativeLookahead:
         self._bye = threading.Event()
         self._listener = self._conn = self._job = self._slot = self._reader_thread = None
         self._request = self._ready = self._failure = None
+        self._first_request_id = None
         self._helper_pid = None
         self._attempted = set()
         self._generation = 0
@@ -82,6 +85,7 @@ class NativeLookahead:
         with self._lock:
             self._audit["events"].append({"kind": kind, "perf_ns": time.perf_counter_ns(),
                                           "wall_ns": time.time_ns(), **values})
+            self._changed.notify_all()
 
     def _mark_failure(self, reason, message):
         with self._lock:
@@ -129,8 +133,14 @@ class NativeLookahead:
             self._send({"kind": "BOOT_ACK", "owner": self.owner, "generation": 0})
             with self._lock:
                 if not self._closing:
-                    self._state = "idle"
                     self._event("hello", helper_pid=int(hello["pid"]), worker_module=str(expected_module))
+                    if self._state == "pending_first":
+                        request = self._request
+                        self._state = "busy"
+                        self._send(request)
+                        self._event("first_sent", request_id=request["request_id"], generation=request["generation"])
+                    elif self._state == "booting":
+                        self._state = "idle"
             while not self._stop.is_set():
                 packet = recv_message(connection, stop_event=self._stop)
                 kind = packet.get("kind")
@@ -168,6 +178,17 @@ class NativeLookahead:
 
     def offer(self, request_id, path):
         """Only the current photo's GPU gate may offer the next immutable item."""
+        return self._offer(request_id, path, first=False)
+
+    def offer_first(self, request_id, path):
+        """Reserve one started first item without waiting for authenticated BOOT."""
+        with self._lock:
+            if self._first_request_id is not None:
+                return False
+            self._first_request_id = str(request_id)
+        return self._offer(request_id, path, first=True)
+
+    def _offer(self, request_id, path, *, first):
         request_id = str(request_id)
         with self._lock:
             if self._closing or self._closed or self._audit["disabled_reason"] or self._audit["disable_pending_reason"]:
@@ -180,7 +201,8 @@ class NativeLookahead:
             with self._lock:
                 if self._closing or self._closed or self._audit["disabled_reason"]:
                     return False
-                if self._state != "idle" or self._request is not None:
+                pending_boot = first and self._state == "booting"
+                if (self._state != "idle" and not pending_boot) or self._request is not None:
                     self._event("offer_miss", request_id=request_id, reason="helper_not_idle")
                     raise RuntimeError("Native helper is not idle at GPU gate")
                 available = int(psutil.virtual_memory().available)
@@ -195,11 +217,12 @@ class NativeLookahead:
                            "sha256": None, "slot_name": self._slot.name, "slot_capacity": SLOT_BYTES}
                 self._request = request
                 self._ready = None
-                self._state = "busy"
+                self._state = "pending_first" if pending_boot else "busy"
                 self._audit["offers"] += 1
-            self._send(request)
+            if not pending_boot:
+                self._send(request)
             self._event("offered", request_id=request_id, generation=request["generation"], path=str(path),
-                        available_ram_bytes=available)
+                        available_ram_bytes=available, first=first, pending_boot=pending_boot)
             return True
         except Exception as error:
             self._mark_failure("offer_error", repr(error))
@@ -311,6 +334,46 @@ class NativeLookahead:
                 rgb = None
         if reason is not None:
             self._disable(reason)
+        return result
+
+    def take_first(self, request_id, path):
+        """One bounded READY wait at first formal RAW; cleanup precedes fallback."""
+        request_id = str(request_id)
+        with self._lock:
+            if request_id != self._first_request_id:
+                raise ValueError("First native request differs")
+            needs_close = self._closing or self._closed or bool(self._audit["disabled_reason"])
+        if needs_close:
+            self.close()
+            return None
+        with self._changed:
+            deadline = time.perf_counter() + FIRST_RAW_WAIT_SECONDS
+            self._event("first_wait_begin", request_id=request_id, deadline_perf_ns=int(deadline * 1e9),
+                        limit_seconds=FIRST_RAW_WAIT_SECONDS)
+            terminal = self._changed.wait_for(
+                lambda: self._closing or self._closed or self._state not in ("booting", "pending_first", "busy"),
+                timeout=max(0, deadline - time.perf_counter()))
+            # wait_for may see a late READY when reacquiring the lock after its
+            # timeout. The decision itself must still belong to this window.
+            terminal = terminal and time.perf_counter() <= deadline
+            closing = self._closing or self._closed
+            self._event("first_wait_end", request_id=request_id, terminal=terminal, state=self._state)
+            if not terminal:
+                # Claim the timeout under the same lock as READY. A late packet
+                # cannot turn this timed-out attempt into a successful consume.
+                self._state = "error"
+                self._failure = {"reason": "first_raw_timeout", "message": "First RAW READY deadline reached"}
+                self._audit["misses"] += 1
+                self._event("miss", request_id=request_id, reason="first_raw_timeout")
+        if not terminal:
+            self._disable("first_raw_timeout")
+            return None
+        if closing:
+            self.close()  # A concurrent close must prove cleanup before fallback.
+            return None
+        result = self.take_nowait(request_id, path)
+        if result is None:
+            self.close()  # Also cover close starting just before take_nowait.
         return result
 
     @property

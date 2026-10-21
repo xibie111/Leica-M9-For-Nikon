@@ -15,6 +15,7 @@ def _native_processor_context(processor, session, plan):
     plan.receipt.update(enabled=True, cleanup_safe=False)
     manager = _make_lookahead()
     offered = set()
+    first_request = None
     error = None
 
     def diagnostics():
@@ -26,6 +27,8 @@ def _native_processor_context(processor, session, plan):
             return None
         offered.remove(request)
         try:
+            if request == first_request:
+                return manager.take_first(request, path)
             return manager.take_nowait(request, path)
         finally:
             diagnostics()
@@ -38,13 +41,24 @@ def _native_processor_context(processor, session, plan):
         return accepted
 
     def run(**kwargs):
+        nonlocal first_request
         public_progress = kwargs.get("progress")
         gate_seen = False
+        models_seen = False
 
         def progress(stage, message):
-            nonlocal gate_seen
+            nonlocal gate_seen, models_seen, first_request
             if public_progress is not None:
                 public_progress(stage, message)
+            # process_nef has already validated its parameters and source. The
+            # started first item owns this request even if stop arrives now.
+            if stage == "models" and not models_seen:
+                models_seen = True
+                if plan.ordinal == 1 and not session.loaded:
+                    first_request = plan.current_id
+                    offered.add(first_request)
+                    manager.offer_first(first_request, kwargs["input_path"])
+                    diagnostics()
             if stage == "style_network" and not gate_seen:
                 gate_seen = True
                 plan.offer_next(offer)
