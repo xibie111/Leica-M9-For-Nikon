@@ -23,6 +23,8 @@
 
 ## 快速开始
 
+Windows NVIDIA 免安装候选包的构建、启动、自检和分发验收说明见 [Windows 分发说明](docs/WINDOWS_PORTABLE.md)。候选包自带运行环境；其跨设备验收和第三方再分发权利仍需确认。
+
 当前安装与启动脚本面向 **Windows x64、Python 3.12**，Python 需包含 Tkinter。CUDA 路径需要相容的 NVIDIA 显卡和驱动；依赖安装到项目内的 `.venv`。
 
 在仓库根目录打开 PowerShell，按设备选择一种安装方式：

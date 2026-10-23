@@ -18,6 +18,12 @@ Python 3.12.4 / PSF and included notices:
   runtime/LICENSE.txt; licenses/LICENSE.txt; licenses/tcl/
   Tcl/Tk is extracted from the official matching CPython Windows component.
 
+Microsoft Visual C++ x64 runtime (application-local DLLs, no installer executed):
+  https://aka.ms/vs/17/release/vc_redist.x64.exe
+  licenses/msvc/license.rtf; licenses/msvc/license.zh-CN.rtf
+  Preserve the Microsoft terms; redistribution eligibility remains part of the
+  candidate's permission review. Original installer is not included in the ZIP.
+
 PyTorch 2.8.0+cu128 and bundled NVIDIA libraries:
   https://pytorch.org/get-started/previous-versions/
   Preserve torch-*.dist-info/licenses/ and any torch/lib/*LICENSE* files.

@@ -7,14 +7,14 @@ set "PYTHONPATH="
 set "PYTHONUTF8=1"
 set "PYTHONDONTWRITEBYTECODE=1"
 if not exist "runtime\python.exe" (
-    echo 包内 Python 缺失。请完整解压 ZIP 后重试。
+    echo Bundled Python is missing. Extract the complete ZIP before starting.
     pause
     exit /b 1
 )
 "runtime\python.exe" -B -u -m m9.portable
 set "M9_EXIT=%ERRORLEVEL%"
 if not "%M9_EXIT%"=="0" (
-    echo 程序失败。请查看以上错误和 %%LOCALAPPDATA%%\LeicaM9ForNikon\logs 内的日志。
+    echo Failed. See errors above and logs in %%LOCALAPPDATA%%\LeicaM9ForNikon\logs.
     pause
 )
 exit /b %M9_EXIT%

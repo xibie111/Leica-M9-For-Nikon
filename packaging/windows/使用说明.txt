@@ -27,3 +27,6 @@ Leica M9 For Nikon — Windows NVIDIA 免安装候选版
 输出为含 Display P3 ICC 的 SDR JPEG，并非 RAW 无损文件。
 本项目基于 OffLineM9，非 Leica、Nikon、小米或 Adobe 官方软件。
 来源、第三方声明、许可待确认项见 THIRD_PARTY_NOTICES.txt 和 licenses 目录。
+
+本轮已知限制：Z6 III 的 DNG 路径在本机 Adobe 转换器上出现云下载缓存初始化失败。
+请查看验收报告；该失败不会自动改走原生路径。native 为默认使用入口。

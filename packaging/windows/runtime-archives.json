@@ -1,0 +1,17 @@
+[
+  {
+    "name": "python-3.12.4-embed-amd64.zip",
+    "url": "https://www.python.org/ftp/python/3.12.4/python-3.12.4-embed-amd64.zip",
+    "sha256": "15fea3c9367653a85086fe37216b4d1a1c78688fa5e1587e1db0b0f658856564"
+  },
+  {
+    "name": "tcltk.msi",
+    "url": "https://www.python.org/ftp/python/3.12.4/amd64/tcltk.msi",
+    "sha256": "6a6200c6a8441d667d25c52750b0b7a3e48367c3b6343ed1e0d3edd5e43f8539"
+  },
+  {
+    "name": "vc_redist.x64.exe",
+    "url": "https://aka.ms/vs/17/release/vc_redist.x64.exe",
+    "sha256": "cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b"
+  }
+]

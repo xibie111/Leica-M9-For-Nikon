@@ -53,7 +53,8 @@ def verify_files(root=ROOT, *, full=False):
     checked = 0
     for entry in manifest:
         relative = Path(entry["path"])
-        if not full and relative.parts[0] not in ("m9", "re"):
+        runtime_root_file = relative.parts[0] == "runtime" and len(relative.parts) == 2
+        if not full and relative.parts[0] not in ("m9", "re") and not runtime_root_file:
             continue
         path = (root / relative).resolve()
         if not path.is_relative_to(root.resolve()):
@@ -71,6 +72,12 @@ def verify_files(root=ROOT, *, full=False):
 
 def check_runtime(root=ROOT):
     import torch
+    import cv2
+    import numpy
+    import PIL.Image
+    import psutil
+    import rawpy
+    import tifffile
     from .device import resolve_device
 
     release = json.loads((root / "RELEASE.json").read_text(encoding="utf-8"))
@@ -88,6 +95,7 @@ def check_runtime(root=ROOT):
         raise RuntimeError(f"CUDA tensor self-check failed: {value}")
     print(json.dumps({"version": release["version"], "python": sys.version.split()[0],
                       "torch": torch.__version__, "cuda_runtime": torch.version.cuda,
+                      "rawpy": rawpy.__version__, "libraw": rawpy.libraw_version,
                       "gpu": torch.cuda.get_device_name(),
                       "vram_bytes": torch.cuda.get_device_properties(0).total_memory},
                      ensure_ascii=False, indent=2), flush=True)
@@ -149,6 +157,7 @@ def main(argv=None):
                 print("Diagnostics: PASS. No camera photo was rendered.", flush=True)
             else:
                 window = create_window(tk_root)
+                print("GUI ready.", flush=True)
                 tk_root.mainloop()
                 del window
             return 0

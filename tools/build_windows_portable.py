@@ -16,8 +16,10 @@ import os
 from pathlib import Path
 import re
 import shutil
+import struct
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 import zipfile
 
 
@@ -126,11 +128,69 @@ def extract_tcltk(msi_path, destination):
     return layout
 
 
+def extract_vcrt(executable, destination):
+    """Unpack the pinned Microsoft Burn bundle as cabinets, never execute it."""
+    import _msi
+
+    destination.mkdir()
+    data = executable.read_bytes()
+    cabinets, start = [], 0
+    while (offset := data.find(b"MSCF", start)) >= 0:
+        start = offset + 4
+        if offset + 36 > len(data):
+            continue
+        size = struct.unpack_from("<I", data, offset + 8)[0]
+        if not 36 < size <= len(data) - offset or data[offset + 24:offset + 26] != b"\x03\x01":
+            continue
+        folder = destination / str(len(cabinets))
+        folder.mkdir()
+        cabinet = folder / "payload.cab"
+        cabinet.write_bytes(data[offset:offset + size])
+        subprocess.run(["expand.exe", str(cabinet), "-F:*", str(folder)],
+                       stdout=subprocess.DEVNULL, check=True)
+        cabinets.append(folder)
+    if len(cabinets) != 2:
+        raise RuntimeError("Unexpected pinned Microsoft runtime container layout")
+    ux, payloads = cabinets
+    manifest = ET.parse(ux / "0")
+    entries = {item.attrib["Id"]: item.attrib for item in manifest.iter()
+               if item.tag.endswith("Payload")}
+    minimum = entries["vcRuntimeMinimum_x64"]
+    cabinet_entry = next(item for item in entries.values()
+                         if item["FilePath"] == str(Path(minimum["FilePath"]).parent / "cab1.cab"))
+    expanded = destination / "minimum"
+    expanded.mkdir()
+    subprocess.run(["expand.exe", str(payloads / cabinet_entry["SourcePath"]), "-F:*", str(expanded)],
+                   stdout=subprocess.DEVNULL, check=True)
+    database = _msi.OpenDatabase(str(payloads / minimum["SourcePath"]), _msi.MSIDBOPEN_READONLY)
+    view = database.OpenView("SELECT File,FileName FROM File")
+    view.Execute(None)
+    dlls = destination / "dlls"
+    dlls.mkdir()
+    while (row := view.Fetch()) is not None:
+        name = row.GetString(2).split("|")[-1]
+        if Path(name).name != name or not name.lower().endswith(".dll"):
+            raise ValueError("Unexpected CRT filename")
+        shutil.copyfile(expanded / row.GetString(1), dlls / name)
+    view.Close()
+    notices = destination / "licenses"
+    notices.mkdir()
+    for item in entries.values():
+        if item["FilePath"] in ("license.rtf", "2052\\license.rtf"):
+            name = "license.zh-CN.rtf" if item["FilePath"].startswith("2052") else "license.rtf"
+            shutil.copyfile(ux / item["SourcePath"], notices / name)
+    return dlls, notices
+
+
 def build(output, downloads, version):
     if os.name != "nt" or sys.version_info[:2] != (3, 12):
         raise RuntimeError("Build with Windows x64 Python 3.12")
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-candidate\.[0-9]+", version):
         raise ValueError("Use a version such as 0.1.0-candidate.1")
+    archive_lock = json.loads((CONFIG / "runtime-archives.json").read_text(encoding="utf-8"))
+    for entry in archive_lock:
+        if sha256(downloads / entry["name"]) != entry["sha256"]:
+            raise RuntimeError(f"Runtime archive differs from reviewed input: {entry['name']}")
     output.mkdir(parents=True, exist_ok=True)
     bundle = output / f"LeicaM9ForNikon-{version}-win-x64-nvidia"
     bundle.mkdir()  # Refuse to overwrite a previous candidate.
@@ -143,6 +203,9 @@ def build(output, downloads, version):
     shutil.copytree(tcl_layout / "tcl", runtime / "tcl")
     for name in ("_tkinter.pyd", "tcl86t.dll", "tk86t.dll", "zlib1.dll"):
         shutil.copyfile(tcl_layout / "DLLs" / name, runtime / name)
+    crt, crt_notices = extract_vcrt(downloads / "vc_redist.x64.exe", output / f"vcrt-{version}")
+    for path in crt.iterdir():
+        shutil.copyfile(path, runtime / path.name)
     # _pth isolates both GUI and -m m9.native_decode_worker from system Python,
     # user site-packages, PYTHONPATH and registry-installed interpreters.
     (runtime / "python312._pth").write_text(
@@ -174,6 +237,10 @@ def build(output, downloads, version):
             if not target.is_relative_to(bundle.resolve()):
                 raise ValueError("Invalid generated tools path")
             shutil.rmtree(target)
+    # Static link libraries are used only to compile custom extensions. Eager
+    # inference loads the DLLs; retaining these .lib files costs 2.6 GiB.
+    for path in (packages / "torch" / "lib").glob("*.lib"):
+        path.unlink()
     dependencies = {}
     for line in (CONFIG / "requirements-runtime.lock").read_text().splitlines():
         if line and not line.startswith("#"):
@@ -184,7 +251,12 @@ def build(output, downloads, version):
     for name, version_text in dependencies.items():
         if installed.get(name.lower().replace("_", "-")) != version_text:
             raise RuntimeError(f"Installed wheel differs from lock: {name}")
+    subprocess.run([str(runtime / "python.exe"), "-B", "-c",
+                    "import tkinter,torch,rawpy,cv2,numpy,PIL.Image,psutil,tifffile; "
+                    "from m9.nef import process_nef; print('Portable runtime imports: PASS')"],
+                   cwd=bundle, env=environment, check=True)
     licenses = bundle / "licenses"
+    shutil.copytree(crt_notices, licenses / "msvc")
     license_index = []
     for path in sorted(runtime.rglob("*")):
         if not path.is_file() or not any(word in path.name.lower() for word in ("license", "copyright", "notice", "eula")):
@@ -207,7 +279,8 @@ def build(output, downloads, version):
     write_json(bundle / "RELEASE.json", release)
     write_json(output / "build-inputs.json", {
         "archives": [{"name": p.name, "sha256": sha256(p), "bytes": p.stat().st_size}
-                     for p in [archive, downloads / "tcltk.msi", *sorted((downloads / "wheels").glob("*.whl"))]],
+                     for p in [archive, downloads / "tcltk.msi", downloads / "vc_redist.x64.exe",
+                               *sorted((downloads / "wheels").glob("*.whl"))]],
         "source_files": [{"path": p, "sha256": sha256(REPO / p)} for p in source_files],
         "source_head": head})
     seal(bundle, make_zip=False)

@@ -8,12 +8,13 @@ import pytest
 from m9 import portable
 
 
-def test_portable_rejects_damaged_and_missing_models(tmp_path):
-    model = tmp_path / "re" / "weights" / "low.npz"
+@pytest.mark.parametrize("relative", ["re/weights/low.npz", "runtime/msvcp140.dll"])
+def test_portable_rejects_damaged_and_missing_models_or_runtime(tmp_path, relative):
+    model = tmp_path / relative
     model.parent.mkdir(parents=True)
     model.write_bytes(b"original")
     import hashlib
-    entries = [{"path": "re/weights/low.npz", "bytes": 8,
+    entries = [{"path": relative, "bytes": 8,
                 "sha256": hashlib.sha256(b"original").hexdigest()}]
     (tmp_path / "FILE_MANIFEST.json").write_text(json.dumps(entries))
     assert portable.verify_files(tmp_path) == 1
