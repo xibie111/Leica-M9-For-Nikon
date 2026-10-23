@@ -1,0 +1,37 @@
+Third-party notices / 第三方来源与分发状态
+
+This is a local evaluation candidate, not a grant of redistribution rights.
+此文件记录来源和待解决项，不自行授予原作者、模型或调校资源的使用/再分发许可。
+
+Application:
+  https://github.com/xibie111/Leica-M9-For-Nikon
+Original pipeline, decoded low/high/colorfix weights and tuning/research:
+  https://github.com/benbaobaoshigemi/OffLineM9
+  Upstream work reconstructs the Xiaomi 17 Ultra Leica M9 style pipeline.
+  No explicit application/weights/tuning redistribution license was found in the
+  locally frozen repository. Do not infer permission from public availability.
+  BLOCKED_PENDING_CONFIRMATION: obtain/check applicable permission for code,
+  weights, tuning tables and filter resources before external distribution.
+
+Python 3.12.4 / PSF and included notices:
+  https://www.python.org/ftp/python/3.12.4/
+  runtime/LICENSE.txt; licenses/LICENSE.txt; licenses/tcl/
+  Tcl/Tk is extracted from the official matching CPython Windows component.
+
+PyTorch 2.8.0+cu128 and bundled NVIDIA libraries:
+  https://pytorch.org/get-started/previous-versions/
+  Preserve torch-*.dist-info/licenses/ and any torch/lib/*LICENSE* files.
+  licenses/INDEX.json lists the copied notices and their runtime-relative paths.
+  NVIDIA bundled library terms are included with the upstream PyTorch wheel.
+  NVIDIA display driver and CUDA Toolkit installers are not bundled.
+
+NumPy, OpenCV headless, rawpy/LibRaw, Pillow, tifffile, psutil and PyTorch's
+dependencies: original wheel metadata, licenses and notices are retained in
+runtime/Lib/site-packages/*.dist-info/ and collected in licenses/.
+Rawpy/LibRaw bundled notices must be read separately from the matrix data notices.
+Nikon matrix catalog provenance: m9/data/LibRaw-NOTICE.txt,
+m9/data/LibRaw-COPYRIGHT.txt, m9/data/LibRaw-LICENSE.CDDL.
+
+Adobe DNG Converter is optional, not included, and installed separately by users.
+No sample photos, developer environment, credentials or Adobe executables belong
+in this package. RELEASE.json identifies the source and exact dependency versions.
